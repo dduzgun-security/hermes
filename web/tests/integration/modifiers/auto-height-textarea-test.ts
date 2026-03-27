@@ -17,7 +17,7 @@ module("Integration | Modifier | auto-height-textarea", function (hooks) {
     emberAssert("textarea must exist", textarea);
 
     assert.equal(textarea.getAttribute("rows"), "1");
-    assert.true(textarea.style.resize === "none");
+    assert.strictEqual(textarea.style.resize, "none");
 
     let textareaHeight = textarea.clientHeight;
 

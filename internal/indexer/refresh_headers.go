@@ -176,9 +176,7 @@ func refreshDocumentHeader(
 	var doc *document.Document
 	if idx.UseDatabaseForDocumentData {
 		// Get document from database.
-		model := models.Document{
-			GoogleFileID: file.Id,
-		}
+		model := models.NewDocumentByFileID(file.Id, false)
 		if err := model.Get(idx.Database); err != nil {
 			log.Error("error getting document from database",
 				"error", err,
@@ -190,9 +188,7 @@ func refreshDocumentHeader(
 		// Get reviews for the document from the database.
 		var reviews models.DocumentReviews
 		if err := reviews.Find(idx.Database, models.DocumentReview{
-			Document: models.Document{
-				GoogleFileID: file.Id,
-			},
+			Document: models.NewDocumentByFileID(file.Id, false),
 		}); err != nil {
 			log.Error("error getting reviews for document",
 				"error", err,
@@ -204,9 +200,7 @@ func refreshDocumentHeader(
 		// Get group reviews for the document.
 		var groupReviews models.DocumentGroupReviews
 		if err := groupReviews.Find(idx.Database, models.DocumentGroupReview{
-			Document: models.Document{
-				GoogleFileID: file.Id,
-			},
+			Document: models.NewDocumentByFileID(file.Id, false),
 		}); err != nil {
 			log.Error("error getting group reviews for document",
 				"error", err,

@@ -4,7 +4,7 @@ import { TEST_USER_EMAIL, TEST_USER_PHOTO } from "../utils";
 export default Factory.extend({
   id: (i) => `doc-${i}`,
   sortOrder: (i) => i,
-  googleFileID() {
+  FileID() {
     return `${this.id}`;
   },
   title() {

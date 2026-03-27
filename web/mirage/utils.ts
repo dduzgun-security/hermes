@@ -1,4 +1,4 @@
-import { MirageTestContext } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import AuthenticatedUserService from "hermes/services/authenticated-user";
 import ConfigService from "hermes/services/config";
 import config from "hermes/config/environment";
@@ -49,7 +49,7 @@ export const TEST_WEB_CONFIG = {
   jira_url: TEST_JIRA_WORKSPACE_URL,
   google_doc_folders: "",
   short_link_base_url: TEST_SHORT_LINK_BASE_URL,
-  skip_google_auth: false,
+  skip_microsoft_auth: false,
   group_approvals: true,
   google_analytics_tag_id: undefined,
   support_link_url: TEST_SUPPORT_URL,

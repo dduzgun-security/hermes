@@ -55,22 +55,30 @@ func webHandler(next http.Handler) http.Handler {
 }
 
 type ConfigResponse struct {
-	AlgoliaDocsIndexName     string          `json:"algolia_docs_index_name"`
-	AlgoliaDraftsIndexName   string          `json:"algolia_drafts_index_name"`
-	AlgoliaInternalIndexName string          `json:"algolia_internal_index_name"`
-	AlgoliaProjectsIndexName string          `json:"algolia_projects_index_name"`
-	CreateDocsAsUser         bool            `json:"create_docs_as_user"`
-	FeatureFlags             map[string]bool `json:"feature_flags"`
-	GoogleAnalyticsTagID     string          `json:"google_analytics_tag_id"`
-	GoogleOAuth2ClientID     string          `json:"google_oauth2_client_id"`
-	GoogleOAuth2HD           string          `json:"google_oauth2_hd"`
-	GroupApprovals           bool            `json:"group_approvals"`
-	JiraURL                  string          `json:"jira_url"`
-	ShortLinkBaseURL         string          `json:"short_link_base_url"`
-	SkipGoogleAuth           bool            `json:"skip_google_auth"`
-	SupportLinkURL           string          `json:"support_link_url"`
-	ShortRevision            string          `json:"short_revision"`
-	Version                  string          `json:"version"`
+	AlgoliaDocsIndexName     string           `json:"algolia_docs_index_name"`
+	AlgoliaDraftsIndexName   string           `json:"algolia_drafts_index_name"`
+	AlgoliaInternalIndexName string           `json:"algolia_internal_index_name"`
+	AlgoliaProjectsIndexName string           `json:"algolia_projects_index_name"`
+	CreateDocsAsUser         bool             `json:"create_docs_as_user"`
+	FeatureFlags             map[string]bool  `json:"feature_flags"`
+	GoogleAnalyticsTagID     string           `json:"google_analytics_tag_id"`
+	GoogleOAuth2ClientID     string           `json:"google_oauth2_client_id"`
+	GoogleOAuth2HD           string           `json:"google_oauth2_hd"`
+	GroupApprovals           bool             `json:"group_approvals"`
+	JiraURL                  string           `json:"jira_url"`
+	Microsoft                *MicrosoftConfig `json:"microsoft,omitempty"`
+	ShortLinkBaseURL         string           `json:"short_link_base_url"`
+	SkipGoogleAuth           bool             `json:"skip_google_auth"`
+	SkipMicrosoftAuth        bool             `json:"skip_microsoft_auth"`
+	SupportLinkURL           string           `json:"support_link_url"`
+	ShortRevision            string           `json:"short_revision"`
+	Version                  string           `json:"version"`
+}
+
+type MicrosoftConfig struct {
+	ClientID    string `json:"clientId"`
+	TenantID    string `json:"tenantId"`
+	RedirectURI string `json:"redirectUri"`
 }
 
 // ConfigHandler returns runtime configuration for the Hermes frontend.
@@ -94,7 +102,7 @@ func ConfigHandler(
 			// Use the "x-amzn-oidc-identity" header if set
 			// as id to be hashed and toggle flags.
 			r.Header.Get("x-amzn-oidc-identity"),
-			// Get user email from value set by Okta middleware
+			// Get user email from value set by OIDC middleware
 			fmt.Sprintf("%v", r.Context().Value("userEmail")),
 			log,
 		)
@@ -108,10 +116,22 @@ func ConfigHandler(
 			shortLinkBaseURL = strings.TrimSuffix(cfg.BaseURL, "/") + "/l"
 		}
 
-		// Skip Google auth if Okta is not disabled in the config.
+		// Skip Google auth if any non-Google auth method is configured.
+		// When OIDC ALB, Okta, or SharePoint is configured, Google
+		// auth tokens are not needed (those systems handle auth).
 		skipGoogleAuth := false
-		if cfg.Okta == nil || (cfg.Okta != nil && !cfg.Okta.Disabled) {
+		if (cfg.OidcAlb != nil && !cfg.OidcAlb.Disabled) ||
+			(cfg.Okta != nil && !cfg.Okta.Disabled) ||
+			cfg.SharePoint != nil {
 			skipGoogleAuth = true
+		}
+
+		// Skip Microsoft auth when:
+		// - OIDC ALB handles auth (ALB not disabled), OR
+		// - SharePoint is not configured (Google mode — no Microsoft auth needed)
+		skipMicrosoftAuth := false
+		if (cfg.OidcAlb != nil && !cfg.OidcAlb.Disabled) || cfg.SharePoint == nil {
+			skipMicrosoftAuth = true
 		}
 
 		// Set CreateDocsAsUser if enabled in the config.
@@ -123,8 +143,9 @@ func ConfigHandler(
 
 		// Set GroupApprovals if enabled in the config.
 		groupApprovals := false
-		if cfg.GoogleWorkspace.GroupApprovals != nil &&
-			cfg.GoogleWorkspace.GroupApprovals.Enabled {
+		if cfg.SharePoint != nil &&
+			cfg.SharePoint.GroupApprovals != nil &&
+			cfg.SharePoint.GroupApprovals.Enabled {
 			groupApprovals = true
 		}
 
@@ -132,6 +153,15 @@ func ConfigHandler(
 		jiraURL := ""
 		if cfg.Jira != nil && cfg.Jira.Enabled {
 			jiraURL = cfg.Jira.URL
+		}
+
+		var microsoftConfig *MicrosoftConfig
+		if cfg.SharePoint != nil {
+			microsoftConfig = &MicrosoftConfig{
+				ClientID:    cfg.SharePoint.ClientID,
+				TenantID:    cfg.SharePoint.TenantID,
+				RedirectURI: cfg.SharePoint.RedirectURI,
+			}
 		}
 
 		response := &ConfigResponse{
@@ -146,8 +176,10 @@ func ConfigHandler(
 			GoogleOAuth2HD:           cfg.GoogleWorkspace.OAuth2.HD,
 			GroupApprovals:           groupApprovals,
 			JiraURL:                  jiraURL,
+			Microsoft:                microsoftConfig,
 			ShortLinkBaseURL:         shortLinkBaseURL,
 			SkipGoogleAuth:           skipGoogleAuth,
+			SkipMicrosoftAuth:        skipMicrosoftAuth,
 			SupportLinkURL:           cfg.SupportLinkURL,
 			ShortRevision:            version.GetShortRevision(),
 			Version:                  version.GetVersion(),

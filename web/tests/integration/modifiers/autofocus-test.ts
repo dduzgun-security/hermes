@@ -1,4 +1,5 @@
-import { TestContext, find, render } from "@ember/test-helpers";
+import { find, render } from "@ember/test-helpers";
+import type { TestContext } from "@ember/test-helpers";
 import { module, test } from "qunit";
 import { hbs } from "ember-cli-htmlbars";
 import { setupRenderingTest } from "ember-qunit";
@@ -20,11 +21,11 @@ module("Integration | Modifier | autofocus", function (hooks) {
       {{/if}}
     `);
 
-    assert.true(find("input") === document.activeElement);
+    assert.strictEqual(find("input"), document.activeElement);
 
     this.set("buttonIsShown", true);
 
-    assert.true(find("button") === document.activeElement);
+    assert.strictEqual(find("button"), document.activeElement);
   });
 
   test("it can target focusable children of an element", async function (this: AutofocusModifierTestContext, assert) {
@@ -36,9 +37,6 @@ module("Integration | Modifier | autofocus", function (hooks) {
       </div>
     `);
 
-    assert.true(
-      find("input") === document.activeElement,
-      "the first focusable child is focused"
-    );
+    assert.strictEqual(find("input"), document.activeElement, "the first focusable child is focused");
   });
 });

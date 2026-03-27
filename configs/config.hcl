@@ -1,7 +1,7 @@
 // base_url is the base URL used for building links. This should be the public
 // URL of the application.
 base_url = "http://localhost:8000"
-
+//base_url = "https://localhost:8443"
 // log_format configures the logging format. Supported values are "standard" or
 // "json".
 log_format = "standard"
@@ -98,12 +98,12 @@ email {
 feature_flags {
   // api_v2 enables v2 of the API.
   flag "api_v2" {
-    enabled = false
+    enabled = true
   }
 
   // projects enables the projects feature in the UI.
   flag "projects" {
-    enabled = false
+    enabled = true
   }
 }
 
@@ -178,7 +178,7 @@ indexer {
 
   // use_database_for_document_data will use the database instead of Algolia as
   // the source of truth for document data, if true.
-  use_database_for_document_data = false
+  use_database_for_document_data = true
 }
 
 // jira is the configuration for Hermes to work with Jira.
@@ -238,8 +238,48 @@ products {
   }
 }
 
+// --------------------------------------------------------------------------
+// SharePoint Backend Configuration (alternative to google_workspace)
+// --------------------------------------------------------------------------
+// Uncomment and configure these blocks to use SharePoint instead of Google.
+
+// sharepoint {
+//   redirect_uri  = "https://localhost:8443/authenticate"
+//   client_id  = "YOUR_SHAREPOINT_CLIENT_ID"
+//   client_secret = "YOUR_SHAREPOINT_CLIENT_SECRET"
+//   tenant_id  = "YOUR_AZURE_AD_TENANT_ID"
+//   site_id    = "YOUR_SHAREPOINT_SITE_ID"
+//   drive_id   = "YOUR_SHAREPOINT_DRIVE_ID"
+//   domain     = "your-domain.com"
+//
+//   shortcuts_folder = "ShortcutsFolder"
+//   docs_folder = ""
+//
+//   drafts_folder = ""
+//   group_approvals {
+//     enabled = true
+//     #search_prefix = "test-"
+//   }
+// }
+
+oidc_alb {
+  // auth_server_url is the OIDC discovery URL.
+  auth_server_url = "https://your-oidc-provider.com"
+  // aws_region is the region of the AWS ALB.
+  aws_region = "us-east-1"
+  // client_id is the OIDC client ID.
+  client_id = "ClientID"
+  // disabled disables OIDC ALB authorization.
+  disabled = true
+  // jwt_signer is the ARN of the ALB for JWT verification.
+  jwt_signer = "arn:aws:elasticloadbalancing:..."
+}
+
 // server contains the configuration for the server.
 server {
-  // addr is the address to bind to for listening.
   addr = "127.0.0.1:8000"
+//   tls_enabled = true
+//   addr     = "0.0.0.0:8443"
+//   tls_cert = "/path/to/cert.pem"
+//   tls_key  = "/path/to/key.pem"
 }

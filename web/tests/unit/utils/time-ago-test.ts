@@ -9,24 +9,24 @@ module("Unit | Utility | time-ago", function () {
 
     const now = Date.now() / 1000;
 
-    assert.equal("5 seconds ago", timeAgo(now - 5));
-    assert.equal("1 minute ago", timeAgo(now - 60));
-    assert.equal("5 minutes ago", timeAgo(now - 300));
-    assert.equal("6 hours ago", timeAgo(now - 21600));
-    assert.equal("Unknown date", timeAgo(undefined));
+    assert.strictEqual(timeAgo(now - 5), "5 seconds ago");
+    assert.strictEqual(timeAgo(now - 60), "1 minute ago");
+    assert.strictEqual(timeAgo(now - 300), "5 minutes ago");
+    assert.strictEqual(timeAgo(now - 21600), "6 hours ago");
+    assert.strictEqual(timeAgo(undefined), "Unknown date");
 
-    assert.equal("2 months ago", timeAgo(now - 5184000));
+    assert.strictEqual(timeAgo(now - 5184000), "2 months ago");
 
-    assert.equal(
-      "2 Nov. 1999",
+    assert.strictEqual(
       timeAgo(now - 5184000, { limitTo24Hours: true }),
+      "2 Nov. 1999",
     );
 
-    assert.equal("2 years ago", timeAgo(now - 63072000));
+    assert.strictEqual(timeAgo(now - 63072000), "2 years ago");
 
-    assert.equal(
-      "1 Jan. 1998",
+    assert.strictEqual(
       timeAgo(now - 63072000, { limitTo24Hours: true }),
+      "1 Jan. 1998",
     );
 
     MockDate.reset();

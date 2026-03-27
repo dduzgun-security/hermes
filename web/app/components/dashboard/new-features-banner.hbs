@@ -1,20 +1,13 @@
 {{#if this.isShown}}
   <Hds::Alert
-    data-test-migration-banner
+    data-test-new-features-banner
     @type="inline"
-    @color="critical"
-    {{! Remove dismiss functionality for permanent banner }}
-    class="mb-10 permanent-migration-banner"
+    @color="highlight"
+    {{! Icon is hidden by CSS; See `dashboard.scss` }}
+    @onDismiss={{this.dismiss}}
+    class="mb-10"
     as |A|
   >
-    <A.Title>
-      <strong>Important Notice:</strong> Hermes has been moved to a new location. 
-      Please update your bookmarks and begin using our new hermes site.
-      <br><br>
-      <strong>Read-Only Mode:</strong> The current system is now in read-only mode, so please do not update any existing Hermes documents to ensure data integrity. 
-      All documents have been successfully migrated and are now available in Hermes SharePoint.
-      <br><br>
-      <a href="https://hermes-sharepoint.hashicorp.services/" target="_blank" rel="noopener noreferrer" class="migration-link">Access New Hermes System →</a>
-    </A.Title>
+    <A.Title>{{this.title}}</A.Title>
   </Hds::Alert>
 {{/if}}

@@ -20,9 +20,9 @@
         Log in to browse, search, and manage documents
       </p>
       <Hds::Button
-        @text="Authenticate with Google"
+        @text={{this.authButtonText}}
         @size="large"
-        @icon="google"
+        @icon={{this.authButtonIcon}}
         {{on "click" (perform this.authenticate)}}
       />
 

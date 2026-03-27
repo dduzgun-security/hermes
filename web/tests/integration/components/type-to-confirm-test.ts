@@ -1,7 +1,8 @@
 import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
+import type {
+  TestContext} from "@ember/test-helpers";
 import {
-  TestContext,
   fillIn,
   render,
   triggerKeyEvent,

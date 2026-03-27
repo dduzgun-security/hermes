@@ -1,9 +1,10 @@
 import { module, test, todo } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { render, rerender } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import RecentlyViewedService from "hermes/services/recently-viewed";
+import type RecentlyViewedService from "hermes/services/recently-viewed";
 
 const NO_RECENTLY_VIEWED = "[data-test-no-recently-viewed]";
 const ITEM = "[data-test-recently-viewed-item]";
@@ -19,7 +20,7 @@ module("Integration | Component | dashboard/recently-viewed", function (hooks) {
   hooks.beforeEach(function (this: Context) {
     this.set(
       "recentlyViewed",
-      this.owner.lookup("service:recently-viewed") as RecentlyViewedService,
+      this.owner.lookup("service:recently-viewed"),
     );
   });
 

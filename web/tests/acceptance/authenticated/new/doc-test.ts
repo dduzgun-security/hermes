@@ -9,10 +9,11 @@ import {
 import { setupApplicationTest } from "ember-qunit";
 import { module, test } from "qunit";
 import { authenticateSession } from "ember-simple-auth/test-support";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { getPageTitle } from "ember-page-title/test-support";
 import { Response } from "miragejs";
-import RouterService from "@ember/routing/router-service";
+import type RouterService from "@ember/routing/router-service";
 import window from "ember-window-mock";
 import { DRAFT_CREATED_LOCAL_STORAGE_KEY } from "hermes/components/modals/draft-created";
 import { TEST_WEB_CONFIG } from "hermes/mirage/utils";
@@ -36,7 +37,9 @@ const CREATING_NEW_DOC_DESCRIPTION = "[data-test-task-is-running-description]";
 const FLASH_NOTIFICATION = "[data-test-flash-notification]";
 const DRAFT_CREATED_MODAL = "[data-test-draft-created-modal]";
 
-interface AuthenticatedNewDocRouteTestContext extends MirageTestContext {}
+interface AuthenticatedNewDocRouteTestContext extends MirageTestContext {
+  element: Element;
+}
 
 module("Acceptance | authenticated/new/doc", function (hooks) {
   setupApplicationTest(hooks);
@@ -161,7 +164,7 @@ module("Acceptance | authenticated/new/doc", function (hooks) {
 
     await click(CREATE_BUTTON);
 
-    const routerService = this.owner.lookup("service:router") as RouterService;
+    const routerService = this.owner.lookup("service:router");
 
     assert.equal(routerService.currentRouteName, "authenticated.document");
     assert.equal(routerService.currentURL, "/document/1?draft=true");

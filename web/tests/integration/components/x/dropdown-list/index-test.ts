@@ -1,7 +1,8 @@
 import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
+import type {
+  TestContext} from "@ember/test-helpers";
 import {
-  TestContext,
   click,
   fillIn,
   find,
@@ -13,7 +14,7 @@ import {
 } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
 import htmlElement from "hermes/utils/html-element";
-import { Placement } from "@floating-ui/dom";
+import type { Placement } from "@floating-ui/dom";
 
 // TODO: Replace with Mirage factories
 
@@ -48,6 +49,7 @@ const DEFAULT_LOADER_SELECTOR = ".x-dropdown-list-default-loading-container";
 const TOGGLE_ACTION_CHEVRON = "[data-test-toggle-action-chevron]";
 
 interface XDropdownListComponentTestContext extends TestContext {
+  element: Element;
   items: Record<string, { count: number; isSelected: boolean }>;
   onListItemClick: (e: MouseEvent) => void;
   buttonWasClicked?: boolean;
@@ -60,7 +62,7 @@ interface XDropdownListComponentTestContext extends TestContext {
 module("Integration | Component | x/dropdown-list", function (hooks) {
   setupRenderingTest(hooks);
 
-  test("a filter input is shown for long lists", async function (assert) {
+  test("a filter input is shown for long lists", async function (this: XDropdownListComponentTestContext, assert) {
     this.set("items", SHORT_ITEM_LIST);
 
     await render<XDropdownListComponentTestContext>(hbs`

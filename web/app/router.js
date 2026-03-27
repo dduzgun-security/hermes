@@ -12,6 +12,8 @@ Router.map(function () {
     this.route("all"); // legacy route; redirects to /documents
     this.route("documents");
     this.route("document", { path: "/document/:document_id" });
+    // SharePoint testing route — kept for dual-backend testing.
+    this.route("document-view", { path: "/document/:document_id/view" });
 
     this.route("drafts"); // legacy route; redirects to /my
 

@@ -7,7 +7,7 @@ import { ProjectStatus } from "hermes/types/project-status";
 import { HITS_PER_PAGE } from "hermes/services/algolia";
 import { PROJECT_HITS_PER_PAGE } from "hermes/routes/authenticated/projects/index";
 import { assert as emberAssert } from "@ember/debug";
-import { HermesDocument } from "hermes/types/document";
+import type { HermesDocument } from "hermes/types/document";
 import { FacetName } from "hermes/components/header/toolbar";
 
 import {
@@ -502,11 +502,11 @@ export default function (mirageConfig) {
 
             hermesDocuments.forEach((doc) => {
               const relatedDocument = this.schema.relatedHermesDocument.findBy({
-                googleFileID: doc.googleFileID,
+                FileID: doc.FileID,
               });
 
               const fullDocument = this.schema.document.findBy({
-                objectID: doc.googleFileID,
+                objectID: doc.FileID,
               });
 
               const existingDocuments = project.attrs.hermesDocuments ?? [];
@@ -517,7 +517,7 @@ export default function (mirageConfig) {
               );
 
               //  ignore duplicates
-              if (existingDocuments.includes(doc.googleFileID)) {
+              if (existingDocuments.includes(doc.FileID)) {
                 return;
               } else {
                 fullDocument.update({
@@ -619,7 +619,7 @@ export default function (mirageConfig) {
 
           documentsToRemove.forEach((doc) => {
             const mirageDocument = this.schema.document.findBy({
-              objectID: doc.googleFileID,
+              objectID: doc.FileID,
             });
 
             mirageDocument?.update({
@@ -1237,13 +1237,13 @@ export default function (mirageConfig) {
           this.schema.db.relatedExternalLinks.remove();
 
           hermesDocuments.forEach(
-            (doc: { googleFileID: string; sortOrder: number }) => {
+            (doc: { FileID: string; sortOrder: number }) => {
               const mirageDocument = this.schema.document.findBy({
-                objectID: doc.googleFileID,
+                objectID: doc.FileID,
               }).attrs;
 
               this.schema.relatedHermesDocument.create({
-                googleFileID: doc.googleFileID,
+                FileID: doc.FileID,
                 sortOrder: hermesDocuments.indexOf(doc) + 1,
                 title: mirageDocument.title,
                 type: mirageDocument.docType,

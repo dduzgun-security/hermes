@@ -409,9 +409,7 @@ func ReviewHandler(
 			)
 
 			// Update document in the database.
-			d := models.Document{
-				GoogleFileID: docID,
-			}
+			d := models.NewDocumentByFileID(docID, false)
 			if err := d.Get(db); err != nil {
 				l.Error("error getting document in database",
 					"error", err,
@@ -470,6 +468,12 @@ func ReviewHandler(
 						http.StatusInternalServerError)
 					return
 				}
+				l.Debug("got document URL",
+					"doc_id", docID,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"doc_url", docURL,
+				)
 
 				// Send emails to approvers.
 				if len(doc.Approvers) > 0 {
@@ -482,11 +486,14 @@ func ReviewHandler(
 								DocumentOwner:     doc.Owners[0],
 								DocumentShortName: doc.DocNumber,
 								DocumentTitle:     doc.Title,
+								DocumentType:      doc.DocType,
+								DocumentStatus:    doc.Status,
 								DocumentURL:       docURL,
+								Product:           doc.Product,
 							},
 							[]string{approverEmail},
 							cfg.Email.FromAddress,
-							s,
+							&gw.EmailSenderAdapter{Svc: s},
 						)
 						if err != nil {
 							l.Error("error sending approver email",
@@ -539,7 +546,7 @@ func ReviewHandler(
 							},
 							[]string{subscriber.EmailAddress},
 							cfg.Email.FromAddress,
-							s,
+							&gw.EmailSenderAdapter{Svc: s},
 						)
 						if err != nil {
 							l.Error("error sending subscriber email",
@@ -586,9 +593,7 @@ func ReviewHandler(
 				return
 			}
 			// Get document from database.
-			dbDoc := models.Document{
-				GoogleFileID: docID,
-			}
+			dbDoc := models.NewDocumentByFileID(docID, false)
 			if err := dbDoc.Get(db); err != nil {
 				l.Error("error getting document from database for data comparison",
 					"error", err,
@@ -601,9 +606,7 @@ func ReviewHandler(
 			// Get all reviews for the document.
 			var reviews models.DocumentReviews
 			if err := reviews.Find(db, models.DocumentReview{
-				Document: models.Document{
-					GoogleFileID: docID,
-				},
+				Document: models.NewDocumentByFileID(docID, false),
 			}); err != nil {
 				l.Error("error getting all reviews for document for data comparison",
 					"error", err,
@@ -680,6 +683,49 @@ func createShortcut(
 	return
 }
 
+// createSharePointShortcut creates a shortcut (.url file) in the hierarchical folder structure
+// ("Shortcuts Folder/RFC/MyProduct/") under docsFolder in SharePoint.
+// func createShortcut(
+// 	cfg *config.Config,
+// 	doc document.Document, targetWebURL string,
+// 	s *sharepointhelper.Service,
+// ) (shortcutID string, retErr error) {
+// 	// Get or create folder for doc type under ShortcutsFolder
+// 	docTypeFolder, err := s.GetSubfolder(cfg.SharePoint.ShortcutsFolder, doc.DocType)
+// 	if err != nil {
+// 		return "", fmt.Errorf("error getting doc type subfolder: %w", err)
+// 	}
+// 	if docTypeFolder == nil {
+// 		docTypeFolderID, err := s.CreateFolder(doc.DocType, cfg.SharePoint.ShortcutsFolder)
+// 		if err != nil {
+// 			return "", fmt.Errorf("error creating doc type subfolder: %w", err)
+// 		}
+// 		docTypeFolder = &sharepointhelper.DriveItem{ID: docTypeFolderID, Name: doc.DocType}
+// 	}
+
+// 	// Get or create folder for doc type + product
+// 	productFolder, err := s.GetSubfolder(docTypeFolder.ID, doc.Product)
+// 	if err != nil {
+// 		return "", fmt.Errorf("error getting product subfolder: %w", err)
+// 	}
+// 	if productFolder == nil {
+// 		productFolderID, err := s.CreateFolder(doc.Product, docTypeFolder.ID)
+// 		if err != nil {
+// 			return "", fmt.Errorf("error creating product subfolder: %w", err)
+// 		}
+// 		productFolder = &sharepointhelper.DriveItem{ID: productFolderID, Name: doc.Product}
+// 	}
+
+// 	// Create the .url shortcut file in the product folder
+// 	shortcutName := doc.Title // Or doc.DocNumber or any unique name
+// 	err = s.CreateShortcut(targetWebURL, shortcutName, productFolder.ID)
+// 	if err != nil {
+// 		return "", fmt.Errorf("error creating shortcut: %w", err)
+// 	}
+
+// 	return shortcutName, nil
+// }
+
 // getDocumentURL returns a Hermes document URL.
 func getDocumentURL(baseURL, docID string) (string, error) {
 	docURL, err := url.Parse(baseURL)
@@ -735,8 +781,8 @@ func revertReviewCreation(
 			result, fmt.Errorf("error moving doc back to drafts folder: %w", err))
 	}
 
-	// Change back document number to "ABC-???" and status to "WIP".
-	doc.DocNumber = fmt.Sprintf("%s-???", productAbbreviation)
+	// Change back document number to "ABC-xxx" and status to "WIP".
+	doc.DocNumber = fmt.Sprintf("%s-xxx", productAbbreviation)
 	doc.Status = "WIP"
 
 	// Replace the doc header.

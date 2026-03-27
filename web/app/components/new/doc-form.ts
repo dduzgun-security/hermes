@@ -3,18 +3,19 @@ import { task, timeout } from "ember-concurrency";
 import { inject as service } from "@ember/service";
 import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
-import ConfigService from "hermes/services/config";
+import type ConfigService from "hermes/services/config";
 import Ember from "ember";
-import FetchService from "hermes/services/fetch";
-import AuthenticatedUserService from "hermes/services/authenticated-user";
-import RouterService from "@ember/routing/router-service";
-import ModalAlertsService, { ModalType } from "hermes/services/modal-alerts";
+import type FetchService from "hermes/services/fetch";
+import type AuthenticatedUserService from "hermes/services/authenticated-user";
+import type RouterService from "@ember/routing/router-service";
+import type ModalAlertsService from "hermes/services/modal-alerts";
+import { ModalType } from "hermes/services/modal-alerts";
 import { assert } from "@ember/debug";
 import cleanString from "hermes/utils/clean-string";
-import { ProductArea } from "hermes/services/product-areas";
+import type { ProductArea } from "hermes/services/product-areas";
 import { next } from "@ember/runloop";
-import HermesFlashMessagesService from "hermes/services/flash-messages";
-import DocumentTypesService from "hermes/services/document-types";
+import type HermesFlashMessagesService from "hermes/services/flash-messages";
+import type DocumentTypesService from "hermes/services/document-types";
 
 interface DocFormErrors {
   title: string | null;
@@ -47,6 +48,18 @@ export default class NewDocFormComponent extends Component<NewDocFormComponentSi
   @tracked protected _form: HTMLFormElement | null = null;
 
   @tracked protected summaryIsLong = false;
+
+  protected get draftButtonText(): string {
+    return this.configSvc.config.skip_google_auth
+      ? "Create draft in SharePoint"
+      : "Create draft in Google Docs";
+  }
+
+  protected get draftRunningHeadline(): string {
+    return this.configSvc.config.skip_google_auth
+      ? "Creating draft in SharePoint..."
+      : "Creating draft in Google Docs...";
+  }
 
   /**
    * Whether the document is being created, or in the process of
@@ -213,6 +226,52 @@ export default class NewDocFormComponent extends Component<NewDocFormComponentSi
       // Wait for document to be available.
       await timeout(AWAIT_DOC_DELAY);
 
+      // SharePoint mode: poll for the directEditUrl so we can redirect
+      // to the SharePoint editor. Google mode skips this and goes
+      // straight to the in-app document view.
+      if (this.configSvc.config.skip_google_auth) {
+        let retryCount = 0;
+        const maxRetries = 8;
+        const retryInterval = 3000; // 3 seconds
+        let documentData = null;
+
+        while (retryCount < maxRetries) {
+          try {
+            documentData = await this.fetchSvc
+              .fetch(
+                `/api/${this.configSvc.config.api_version}/drafts/${doc.id}`,
+              )
+              .then((response) => response?.json());
+
+            if (
+              documentData &&
+              (documentData.directEditURL || documentData.directEditUrl)
+            ) {
+              break;
+            }
+
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await timeout(retryInterval);
+            }
+          } catch (error) {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await timeout(retryInterval);
+            }
+          }
+        }
+
+        const editUrl =
+          documentData &&
+          (documentData.directEditURL || documentData.directEditUrl);
+        if (editUrl) {
+          window.location.replace(editUrl);
+          return;
+        }
+      }
+
+      // Navigate to the in-app document view (Google mode, or SharePoint fallback).
       this.router
         .transitionTo("authenticated.document", doc.id, {
           queryParams: { draft: true },

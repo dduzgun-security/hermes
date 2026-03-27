@@ -2,10 +2,11 @@ import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
 import { hbs } from "ember-cli-htmlbars";
 import { click, render, triggerEvent } from "@ember/test-helpers";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
-import AuthenticatedUserService from "hermes/services/authenticated-user";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
+import type AuthenticatedUserService from "hermes/services/authenticated-user";
 import { setupProductIndex } from "hermes/tests/mirage-helpers/utils";
-import { HermesSize } from "hermes/types/sizes";
+import type { HermesSize } from "hermes/types/sizes";
 import {
   IS_SUBSCRIBED_TOOLTIP_TEXT,
   NOT_SUBSCRIBED_TOOLTIP_TEXT,

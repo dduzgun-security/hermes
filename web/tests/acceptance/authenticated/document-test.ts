@@ -12,7 +12,8 @@ import {
 import { setupApplicationTest } from "ember-qunit";
 import { module, test } from "qunit";
 import { authenticateSession } from "ember-simple-auth/test-support";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { getPageTitle } from "ember-page-title/test-support";
 import {
   DraftVisibility,
@@ -822,7 +823,7 @@ module("Acceptance | authenticated/document", function (hooks) {
     this.server.create("document", {
       objectID: 1,
       docType: "PRD",
-      docNumber: "LAB-???",
+      docNumber: "LAB-xxx",
     });
 
     await visit("/document/1?draft=true");
@@ -878,13 +879,11 @@ module("Acceptance | authenticated/document", function (hooks) {
 
     await click(`${CONTRIBUTORS_SELECTOR} .field-toggle`);
 
-    assert.true(
-      document.activeElement === find(`${CONTRIBUTORS_SELECTOR} input`),
-    );
+    assert.strictEqual(document.activeElement, find(`${CONTRIBUTORS_SELECTOR} input`));
 
     await click(`${APPROVERS_SELECTOR} .field-toggle`);
 
-    assert.true(document.activeElement === find(`${APPROVERS_SELECTOR} input`));
+    assert.strictEqual(document.activeElement, find(`${APPROVERS_SELECTOR} input`));
   });
 
   test('clicking the empty state of the related resources list opens the "add related resource" modal', async function (this: AuthenticatedDocumentRouteTestContext, assert) {
@@ -903,7 +902,7 @@ module("Acceptance | authenticated/document", function (hooks) {
 
   test("the title attribute saves", async function (this: AuthenticatedDocumentRouteTestContext, assert) {
     let title = "Test Document";
-    let docNumber = "HCP-???";
+    let docNumber = "HCP-xxx";
 
     this.server.create("document", {
       objectID: 1,
@@ -1372,7 +1371,7 @@ module("Acceptance | authenticated/document", function (hooks) {
 
     const document = this.server.schema.document.first();
 
-    assert.true(document.projects.length === 0);
+    assert.strictEqual(document.projects.length, 0);
   });
 
   test("it shows an error when patching a document fails", async function (this: AuthenticatedDocumentRouteTestContext, assert) {

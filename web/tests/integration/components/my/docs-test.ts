@@ -1,13 +1,14 @@
 import { findAll, render } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { setupRenderingTest } from "ember-qunit";
-import { HermesDocument } from "hermes/types/document";
+import type { HermesDocument } from "hermes/types/document";
 import { module, test } from "qunit";
 import MockDate from "mockdate";
 import { DEFAULT_MOCK_DATE } from "hermes/utils/mockdate/dates";
 import { authenticateTestUser } from "hermes/mirage/utils";
-import { SortDirection } from "hermes/components/table/sortable-header";
+import type { SortDirection } from "hermes/components/table/sortable-header";
 
 const PAGINATION = "[data-test-pagination]";
 const TABLE_BODY_HEADER = "[data-test-table-body-header]";

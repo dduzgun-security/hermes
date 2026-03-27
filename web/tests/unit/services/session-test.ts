@@ -2,11 +2,13 @@ import { module, test } from "qunit";
 import { setupTest } from "ember-qunit";
 import { REDIRECT_STORAGE_KEY, isJSON } from "hermes/services/session";
 import window from "ember-window-mock";
+import type SessionService from "hermes/services/session";
 
 const TEST_STORAGE_KEY = `test-${REDIRECT_STORAGE_KEY}`;
 
-interface MockSessionService {
-  handleAuthentication(): string | null;
+// Mock interface that extends SessionService with additional test properties
+interface MockSessionService extends SessionService {
+  handleAuthentication: () => string | null;
 }
 
 module("Unit | Service | session", function (hooks) {

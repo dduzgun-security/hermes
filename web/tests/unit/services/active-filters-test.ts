@@ -1,8 +1,10 @@
 import { module, test } from "qunit";
 import { setupTest } from "ember-qunit";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { authenticateSession } from "ember-simple-auth/test-support";
-import ActiveFiltersService, {
+import type ActiveFiltersService from "hermes/services/active-filters";
+import {
   DEFAULT_FILTERS,
 } from "hermes/services/active-filters";
 
@@ -32,9 +34,9 @@ module("Unit | Service | active-filters", function (hooks) {
   });
 
   test("it computes an `isEmpty` value", function (this: ActiveFiltersServiceTestContext, assert) {
-    assert.equal(this.activeFilters.isEmpty, true);
+    assert.strictEqual(this.activeFilters.isEmpty, true);
     this.activeFilters.index = INDEX;
-    assert.equal(this.activeFilters.isEmpty, false);
+    assert.strictEqual(this.activeFilters.isEmpty, false);
   });
 
   test("you can update the index", function (this: ActiveFiltersServiceTestContext, assert) {

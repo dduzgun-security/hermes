@@ -3,11 +3,12 @@ import { setupRenderingTest } from "ember-qunit";
 import { click, render } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
 import { setupWindowMock } from "ember-window-mock/test-support";
-import AuthenticatedUserService from "hermes/services/authenticated-user";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import type AuthenticatedUserService from "hermes/services/authenticated-user";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import window from "ember-window-mock";
 import { HERMES_GITHUB_REPO_URL } from "hermes/utils/hermes-urls";
-import ConfigService from "hermes/services/config";
+import type ConfigService from "hermes/services/config";
 import {
   TEST_USER_2_EMAIL,
   TEST_USER_2_GIVEN_NAME,
@@ -103,7 +104,7 @@ module("Integration | Component | header/nav", function (hooks) {
     // In assertion tests, Mirage automatically loads our mock config.
     // Rendering tests skip this step, so we need to do it manually.
 
-    let mockConfigSvc = this.owner.lookup("service:config") as ConfigService;
+    let mockConfigSvc = this.owner.lookup("service:config");
     mockConfigSvc.config.support_link_url = SUPPORT_URL;
 
     await render(hbs`

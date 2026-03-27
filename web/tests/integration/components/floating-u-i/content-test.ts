@@ -1,9 +1,10 @@
 import { module, test, todo } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
-import { TestContext, render } from "@ember/test-helpers";
+import { render } from "@ember/test-helpers";
+import type { TestContext } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
 import htmlElement from "hermes/utils/html-element";
-import { OffsetOptions } from "@floating-ui/dom";
+import type { OffsetOptions } from "@floating-ui/dom";
 
 const DEFAULT_CONTENT_OFFSET = 5;
 const CONTENT_SELECTOR = ".hermes-floating-ui-content";
@@ -11,6 +12,7 @@ const CONTENT_SELECTOR = ".hermes-floating-ui-content";
 interface FloatingUIComponentTestContext extends TestContext {
   renderOut?: boolean;
   offset?: OffsetOptions;
+  clearRender: () => Promise<void>;
 }
 
 module("Integration | Component | floating-u-i/content", function (hooks) {
@@ -124,15 +126,9 @@ module("Integration | Component | floating-u-i/content", function (hooks) {
 
     setVariables(anchor, content);
 
-    assert.ok(content.getAttribute("data-floating-ui-placement") === "left");
-    assert.ok(
-      contentRight === anchorLeft - DEFAULT_CONTENT_OFFSET,
-      "content is offset to the left of the anchor",
-    );
-    assert.ok(
-      contentWidth === 100,
-      "the correct width was splatted to the content element",
-    );
+    assert.strictEqual(content.getAttribute("data-floating-ui-placement"), "left");
+    assert.strictEqual(contentRight, anchorLeft - DEFAULT_CONTENT_OFFSET, "content is offset to the left of the anchor");
+    assert.strictEqual(contentWidth, 100, "the correct width was splatted to the content element");
 
     // Clear and set the placement to 'right'
 
@@ -161,11 +157,8 @@ module("Integration | Component | floating-u-i/content", function (hooks) {
 
     setVariables(anchor, content);
 
-    assert.ok(content.getAttribute("data-floating-ui-placement") === "right");
-    assert.ok(
-      contentLeft === anchorRight + DEFAULT_CONTENT_OFFSET,
-      "content is offset to the right of anchor",
-    );
+    assert.strictEqual(content.getAttribute("data-floating-ui-placement"), "right");
+    assert.strictEqual(contentLeft, anchorRight + DEFAULT_CONTENT_OFFSET, "content is offset to the right of anchor");
   });
 
   test("it can use a custom offset", async function (this: FloatingUIComponentTestContext, assert) {
@@ -260,10 +253,7 @@ module("Integration | Component | floating-u-i/content", function (hooks) {
       "content has the `non-floating-content` class",
     );
 
-    assert.true(
-      getComputedStyle(content).position === "static",
-      "content is static",
-    );
+    assert.strictEqual(getComputedStyle(content).position, "static", "content is static");
 
     const inlineStyle = content.getAttribute("style");
 

@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp-forge/hermes/pkg/models"
 	"github.com/hashicorp/go-hclog"
 	"gorm.io/gorm"
+
+	sp "github.com/hashicorp-forge/hermes/pkg/sharepointhelper"
 )
 
 const (
@@ -41,9 +43,9 @@ type Indexer struct {
 	Database *gorm.DB
 
 	// DocumentsFolderID is the Google Drive ID of the folder containing published
-	// documents to index.
 	DocumentsFolderID string
 
+	SharePointDriveID string
 	// DocumentTypes are a slice of document types from the application config.
 	DocumentTypes []*config.DocumentType
 
@@ -70,8 +72,12 @@ type Indexer struct {
 	// UseDatabaseForDocumentData will use the database instead of Algolia as the
 	// source of truth for document data, if true.
 	UseDatabaseForDocumentData bool
+
+	// sharepointSvc is the SharePoint service.
+	sharepointSvc *sp.Service
 }
 
+// IndexerOption defines a functional option for configuring the Indexer.
 type IndexerOption func(*Indexer)
 
 // safeTime is a time.Time that is safe to use concurrently.
@@ -81,7 +87,7 @@ type safeTime struct {
 }
 
 // NewIndexer creates a new indexer.
-func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
+func NewIndexer(cfg *config.Config, opts ...IndexerOption) (*Indexer, error) {
 	// Initialize a new indexer with defaults.
 	idx := &Indexer{
 		Logger: hclog.New(&hclog.LoggerOptions{
@@ -94,9 +100,14 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 		opt(idx)
 	}
 
-	// Validate indexer configuration.
+	// Validate configuration
 	if err := idx.validate(); err != nil {
 		return nil, err
+	}
+
+	// Load SharePointDriveID from configuration if SharePoint is configured.
+	if cfg.SharePoint != nil {
+		idx.SharePointDriveID = cfg.SharePoint.DriveID
 	}
 
 	return idx, nil
@@ -104,15 +115,23 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 
 // validate validates the indexer configuration.
 func (idx *Indexer) validate() error {
-	return validation.ValidateStruct(idx,
+	if err := validation.ValidateStruct(idx,
 		validation.Field(&idx.AlgoliaClient, validation.Required),
 		validation.Field(&idx.BaseURL, validation.Required),
 		validation.Field(&idx.Database, validation.Required),
-		validation.Field(&idx.DocumentsFolderID, validation.Required),
 		validation.Field(&idx.DocumentTypes, validation.Required),
 		validation.Field(&idx.DraftsFolderID, validation.Required),
-		validation.Field(&idx.GoogleWorkspaceService, validation.Required),
-	)
+		validation.Field(&idx.DocumentsFolderID, validation.Required),
+	); err != nil {
+		return err
+	}
+
+	// Ensure at least one backend service is configured.
+	if idx.sharepointSvc == nil && idx.GoogleWorkspaceService == nil {
+		return fmt.Errorf("either SharePoint or Google Workspace service must be configured")
+	}
+
+	return nil
 }
 
 // WithAlgoliaClient sets the Algolia client.
@@ -201,9 +220,35 @@ func WithUseDatabaseForDocumentData(u bool) IndexerOption {
 	}
 }
 
+// WithSharePointService sets the SharePoint service for the Indexer.
+func WithSharePointService(sharepointSvc *sp.Service) IndexerOption {
+	return func(i *Indexer) {
+		i.sharepointSvc = sharepointSvc
+	}
+}
+
 // Run runs the indexer.
 // TODO: improve error handling.
 func (idx *Indexer) Run() error {
+	log := idx.Logger
+
+	if idx.sharepointSvc != nil {
+		// SharePoint indexing loop.
+		for {
+			if err := idx.runSharePoint(); err != nil {
+				log.Error("SharePoint indexing error", "error", err)
+			}
+			log.Info("sleeping for a minute before the next indexing run...")
+			time.Sleep(1 * time.Minute)
+		}
+	} else {
+		// Google Workspace indexing loop.
+		return idx.runGoogleWorkspace()
+	}
+}
+
+// runGoogleWorkspace runs the Google Workspace indexing loop.
+func (idx *Indexer) runGoogleWorkspace() error {
 	algo := idx.AlgoliaClient
 	db := idx.Database
 	gwSvc := idx.GoogleWorkspaceService
@@ -236,7 +281,7 @@ func (idx *Indexer) Run() error {
 
 			// Get drafts folder data (headers) from the database.
 			// Note: we add a "refreshHeaders:" prefix for the Google Drive ID here
-			// to not conflict with with the actual last indexed time of the folder
+			// to not conflict with the actual last indexed time of the folder
 			// (if we're indexing it, that is).
 			fd := models.IndexerFolder{
 				GoogleDriveID: fmt.Sprintf("refreshHeaders:%s", idx.DraftsFolderID),
@@ -296,7 +341,7 @@ func (idx *Indexer) Run() error {
 
 			// Get documents folder data (headers) from the database.
 			// Note: we add a "refreshHeaders:" prefix for the Google Drive ID here
-			// to not conflict with with the actual last indexed time of the folder
+			// to not conflict with the actual last indexed time of the folder
 			// (if we're indexing it, that is).
 			fd := models.IndexerFolder{
 				GoogleDriveID: fmt.Sprintf("refreshHeaders:%s", idx.DocumentsFolderID),
@@ -546,6 +591,94 @@ func (idx *Indexer) Run() error {
 	}
 }
 
+// --- SharePoint indexing logic ---
+func (idx *Indexer) runSharePoint() error {
+	runStartedAt := time.Now().UTC()
+
+	// Metadata tracking
+	md := models.IndexerMetadata{}
+	if err := md.Get(idx.Database); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			md.LastFullIndexAt = time.Unix(0, 0).UTC()
+		} else {
+			return fmt.Errorf("error getting indexer metadata: %w", err)
+		}
+	}
+
+	// Drafts
+	if idx.UpdateDraftHeaders {
+		if err := idx.refreshSharePointFolder(idx.DraftsFolderID, "drafts"); err != nil {
+			return err
+		}
+	}
+
+	// Published
+	/*
+		if idx.UpdateDocumentHeaders {
+			if err := idx.refreshSharePointFolder(idx.DocumentsFolderID, "published"); err != nil {
+				return err
+			}
+		}*/
+
+	// Update metadata
+	md.LastFullIndexAt = runStartedAt.UTC()
+	if err := md.Upsert(idx.Database); err != nil {
+		return fmt.Errorf("error upserting metadata: %w", err)
+	}
+	return nil
+}
+
+func (idx *Indexer) refreshSharePointFolder(folderID, folderType string) error {
+	log := idx.Logger
+	currentTime := time.Now().UTC()
+
+	// Get the last indexed time for the folder from the database.
+	fd := models.IndexerFolder{
+		SharePointFolderID: folderID,
+	}
+	if err := fd.Get(idx.Database); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("error getting folder indexer data: %w", err)
+	}
+
+	// If the last indexed timestamp doesn't exist, set it to the Unix epoch.
+	if fd.LastIndexedAt.IsZero() {
+		fd.LastIndexedAt = time.Unix(0, 0).UTC()
+	}
+
+	// Fetch and process documents modified between the last indexed time and now.
+	docs, err := idx.sharepointSvc.FetchDocuments(idx.SharePointDriveID, folderID, fd.LastIndexedAt, currentTime)
+	if err != nil {
+		return fmt.Errorf("error fetching %s documents from SharePoint: %w", folderType, err)
+	}
+
+	// Log the number of documents fetched.
+	log.Info("Fetched documents from SharePoint",
+		"folder_type", folderType,
+		"folder_id", folderID,
+		"document_count", len(docs),
+	)
+
+	// Process the fetched documents.
+	for _, doc := range docs {
+		log.Info("Indexing SharePoint document",
+			"file_id", doc.ID,
+			"file_name", doc.Name,
+			"folder_type", folderType,
+		)
+	}
+
+	processSharePointDocs(docs, folderType, idx)
+
+	// Update the last indexed time for the folder.
+	fd.LastIndexedAt = currentTime
+	if err := fd.Upsert(idx.Database); err != nil {
+		log.Error("error upserting last indexed time for folder", "folder_id", folderID, "last_indexed_at", fd.LastIndexedAt)
+	}
+
+	log.Info("Done refreshing " + folderType + " document (SharePoint)")
+	return nil
+}
+
 // saveDoc saves a document struct and its redirect details in Algolia.
 func saveDocInAlgolia(
 	doc document.Document,
@@ -578,4 +711,126 @@ func saveDocInAlgolia(
 	}
 
 	return nil
+}
+
+// processSharePointDocs processes and indexes SharePoint documents.
+func processSharePointDocs(docs []sp.Document, docType string, idx *Indexer) {
+	log := idx.Logger
+
+	for _, doc := range docs {
+		logInfo := func(msg string, keyvals ...interface{}) {
+			log.Info(msg, append(keyvals, "sharepoint_file_id", doc.ID)...)
+		}
+		logError := func(msg string, err error) {
+			log.Error(msg,
+				"error", err,
+				"sharepoint_file_id", doc.ID,
+			)
+		}
+
+		logInfo("processing document")
+
+		// Get document from database.
+		dbDoc := models.NewDocumentByFileID(doc.ID, true)
+		if err := dbDoc.Get(idx.Database); err != nil {
+			logError("error getting document from the database", err)
+			continue
+		}
+		if dbDoc.Status == models.WIPDocumentStatus {
+			logInfo("skipping document as it is a WIP document", "Doc Title", dbDoc.Title)
+			continue
+		}
+		// Get reviews for the document from the database.
+		var reviews models.DocumentReviews
+		if err := reviews.Find(idx.Database, models.DocumentReview{
+			Document: models.NewDocumentByFileID(doc.ID, true),
+		}); err != nil {
+			log.Error("error getting reviews for document",
+				"error", err,
+				"sharepoint_file_id", doc.ID,
+			)
+			continue
+		}
+
+		// Get group reviews for the document.
+		var groupReviews models.DocumentGroupReviews
+		if err := groupReviews.Find(idx.Database, models.DocumentGroupReview{
+			Document: models.NewDocumentByFileID(doc.ID, true),
+		}); err != nil {
+			log.Error("error getting group reviews for document",
+				"error", err,
+				"sharepoint_file_id", doc.ID,
+			)
+			continue
+		}
+
+		// Parse document modified time.
+		modifiedTime, err := time.Parse(time.RFC3339Nano, doc.LastModifiedTime)
+		if err != nil {
+			logError("error parsing document modified time", err)
+			continue
+		}
+
+		// Set new modified time for document record.
+		dbDoc.DocumentModifiedAt = modifiedTime
+
+		// Update document in database.
+		if err := dbDoc.Upsert(idx.Database); err != nil {
+			logError("error upserting document", err)
+			continue
+		}
+
+		var documentObj *document.Document
+		if idx.UseDatabaseForDocumentData {
+			log.Debug("Using database for document data source", "sharepoint_file_id", doc.ID)
+			// Convert database record to a document.
+			documentObj, err = document.NewFromDatabaseModel(dbDoc, reviews, groupReviews)
+			//documentObj, err = document.NewFromDatabaseModel(dbDoc, nil, nil)
+			if err != nil {
+				log.Error("error converting database record to document",
+					"error", err,
+					"sharepoint_file_id", doc.ID,
+				)
+				continue
+			}
+		} else {
+			log.Debug("Using Algolia for document data source", "sharepoint_file_id", doc.ID)
+			// Get document object from Algolia.
+			var algoObj map[string]any
+			if err = idx.AlgoliaClient.Docs.GetObject(doc.ID, &algoObj); err != nil {
+				logError("error retrieving document object from Algolia", err)
+				continue
+			}
+
+			// Convert Algolia object to a document.
+			documentObj, err = document.NewFromAlgoliaObject(algoObj, idx.DocumentTypes)
+			if err != nil {
+				logError("error converting Algolia object to document", err)
+				continue
+			}
+		}
+
+		// Get document content from SharePoint.
+		content, err := idx.sharepointSvc.DownloadContent(doc.ID)
+		if err != nil {
+			logError("error downloading document content from SharePoint", err)
+			continue
+		}
+		// Trim doc content if it is larger than the maximum size.
+		if len(content) > maxContentSize {
+			content = content[:maxContentSize]
+		}
+
+		// Update document object with content and latest modified time.
+		documentObj.Content = (string(content))
+		documentObj.ModifiedTime = modifiedTime.Unix()
+
+		// Save the document in Algolia.
+		if err := saveDocInAlgolia(*documentObj, idx.AlgoliaClient); err != nil {
+			logError("error saving document in Algolia", err)
+			continue
+		}
+
+		logInfo("document processed and indexed")
+	}
 }

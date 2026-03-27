@@ -1,7 +1,7 @@
 import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
 import {
-  TestContext,
+  type TestContext,
   click,
   render,
   triggerEvent,
@@ -9,7 +9,7 @@ import {
 } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
 import sinon from "sinon";
-import { Placement } from "@floating-ui/dom";
+import type { Placement } from "@floating-ui/dom";
 
 interface CopyURLButtonComponentTextContext extends TestContext {
   tooltipPlacement: Placement | undefined;

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -1550,5 +1551,281 @@ func TestDocumentReplaceRelatedResources(t *testing.T) {
 			assert.Equal("GoogleFileID3", hdrrs[1].Document.GoogleFileID)
 			assert.Equal(3, hdrrs[1].RelatedResource.SortOrder)
 		})
+	})
+}
+
+// TestDocumentDualBackend tests that core document CRUD operations work with
+// both GoogleFileID (Google Workspace) and FileID (SharePoint) backends.
+// The main TestDocumentModel tests above use GoogleFileID; this test verifies
+// the FileID path works identically.
+func TestDocumentDualBackend(t *testing.T) {
+	dsn := os.Getenv("HERMES_TEST_POSTGRESQL_DSN")
+	if dsn == "" {
+		t.Skip("HERMES_TEST_POSTGRESQL_DSN environment variable isn't set")
+	}
+
+	// backends defines the two backends to test. Each provides a factory
+	// function that creates a Document with the correct file-ID field set.
+	backends := []struct {
+		name    string
+		makeDoc func(id string) Document
+		getID   func(d Document) string
+	}{
+		{
+			name:    "GoogleFileID",
+			makeDoc: func(id string) Document { return Document{GoogleFileID: id} },
+			getID:   func(d Document) string { return d.GoogleFileID },
+		},
+		{
+			name:    "FileID",
+			makeDoc: func(id string) Document { return Document{FileID: id} },
+			getID:   func(d Document) string { return d.FileID },
+		},
+	}
+
+	for _, backend := range backends {
+		backend := backend // capture
+		t.Run(backend.name, func(t *testing.T) {
+			db, tearDownTest := setupTest(t, dsn)
+			defer tearDownTest(t)
+
+			assert, require := assert.New(t), require.New(t)
+
+			// Setup: document type and product.
+			dt := DocumentType{Name: "DT1", LongName: "DocumentType1"}
+			require.NoError(dt.FirstOrCreate(db))
+			p := Product{Name: "Product1", Abbreviation: "P1"}
+			require.NoError(p.FirstOrCreate(db))
+
+			// --- Create ---
+			t.Run("Create", func(t *testing.T) {
+				d := backend.makeDoc("testFileID1")
+				d.DocumentType = DocumentType{Name: "DT1"}
+				d.Product = Product{Name: "Product1"}
+				d.Title = "Test Doc 1"
+				d.Status = WIPDocumentStatus
+
+				err := d.Create(db)
+				require.NoError(err)
+				assert.NotEmpty(d.ID)
+				assert.Equal("testFileID1", backend.getID(d))
+			})
+
+			// --- Get ---
+			t.Run("Get", func(t *testing.T) {
+				d := backend.makeDoc("testFileID1")
+				err := d.Get(db)
+				require.NoError(err)
+				assert.Equal("Test Doc 1", d.Title)
+				assert.Equal("testFileID1", backend.getID(d))
+			})
+
+			// --- Upsert ---
+			t.Run("Upsert", func(t *testing.T) {
+				d := backend.makeDoc("testFileID1")
+				d.DocumentType = DocumentType{Name: "DT1"}
+				d.Product = Product{Name: "Product1"}
+				d.Title = "Updated Title"
+				d.Status = InReviewDocumentStatus
+				err := d.Upsert(db)
+				require.NoError(err)
+
+				// Verify update took effect.
+				d2 := backend.makeDoc("testFileID1")
+				err = d2.Get(db)
+				require.NoError(err)
+				assert.Equal("Updated Title", d2.Title)
+				assert.Equal(InReviewDocumentStatus, d2.Status)
+			})
+
+			// --- Create second doc ---
+			t.Run("Create second document", func(t *testing.T) {
+				d := backend.makeDoc("testFileID2")
+				d.DocumentType = DocumentType{Name: "DT1"}
+				d.Product = Product{Name: "Product1"}
+				d.Title = "Test Doc 2"
+				d.Status = WIPDocumentStatus
+				err := d.Create(db)
+				require.NoError(err)
+			})
+
+			// --- Delete ---
+			t.Run("Delete", func(t *testing.T) {
+				d := backend.makeDoc("testFileID2")
+				err := d.Delete(db)
+				require.NoError(err)
+
+				// Verify it's gone.
+				d2 := backend.makeDoc("testFileID2")
+				err = d2.Get(db)
+				assert.Error(err)
+			})
+
+			// --- BeforeCreate validation ---
+			t.Run("BeforeCreate rejects empty file ID", func(t *testing.T) {
+				d := Document{
+					DocumentType: DocumentType{Name: "DT1"},
+					Product:      Product{Name: "Product1"},
+					Title:        "No File ID",
+				}
+				err := d.Create(db)
+				assert.Error(err, "should reject document with no file ID")
+			})
+		})
+	}
+}
+
+// TestDocumentDualBackendCoexistence verifies that a Google doc and a SharePoint
+// doc can coexist in the same database (different documents with different ID
+// fields).
+func TestDocumentDualBackendCoexistence(t *testing.T) {
+	dsn := os.Getenv("HERMES_TEST_POSTGRESQL_DSN")
+	if dsn == "" {
+		t.Skip("HERMES_TEST_POSTGRESQL_DSN environment variable isn't set")
+	}
+
+	db, tearDownTest := setupTest(t, dsn)
+	defer tearDownTest(t)
+
+	assert, require := assert.New(t), require.New(t)
+
+	// Setup.
+	dt := DocumentType{Name: "DT1", LongName: "DocumentType1"}
+	require.NoError(dt.FirstOrCreate(db))
+	p := Product{Name: "Product1", Abbreviation: "P1"}
+	require.NoError(p.FirstOrCreate(db))
+
+	// Create a Google doc.
+	googleDoc := Document{
+		GoogleFileID: "google-doc-123",
+		DocumentType: DocumentType{Name: "DT1"},
+		Product:      Product{Name: "Product1"},
+		Title:        "Google Doc",
+		Status:       WIPDocumentStatus,
+	}
+	require.NoError(googleDoc.Create(db))
+
+	// Create a SharePoint doc.
+	spDoc := Document{
+		FileID:       "sharepoint-doc-456",
+		DocumentType: DocumentType{Name: "DT1"},
+		Product:      Product{Name: "Product1"},
+		Title:        "SharePoint Doc",
+		Status:       WIPDocumentStatus,
+	}
+	require.NoError(spDoc.Create(db))
+
+	// Both should be independently retrievable.
+	t.Run("Get Google doc by GoogleFileID", func(t *testing.T) {
+		d := Document{GoogleFileID: "google-doc-123"}
+		require.NoError(d.Get(db))
+		assert.Equal("Google Doc", d.Title)
+		assert.Equal("google-doc-123", d.GoogleFileID)
+		assert.Empty(d.FileID)
+	})
+
+	t.Run("Get SharePoint doc by FileID", func(t *testing.T) {
+		d := Document{FileID: "sharepoint-doc-456"}
+		require.NoError(d.Get(db))
+		assert.Equal("SharePoint Doc", d.Title)
+		assert.Equal("sharepoint-doc-456", d.FileID)
+		assert.Empty(d.GoogleFileID)
+	})
+
+	// GetFileIdentifier should return the correct ID for each.
+	t.Run("GetFileIdentifier returns correct ID", func(t *testing.T) {
+		gd := Document{GoogleFileID: "google-doc-123"}
+		require.NoError(gd.Get(db))
+		assert.Equal("google-doc-123", gd.GetFileIdentifier())
+
+		sd := Document{FileID: "sharepoint-doc-456"}
+		require.NoError(sd.Get(db))
+		assert.Equal("sharepoint-doc-456", sd.GetFileIdentifier())
+	})
+
+	// hasNoFileID should work correctly.
+	t.Run("hasNoFileID", func(t *testing.T) {
+		empty := Document{}
+		assert.True(empty.hasNoFileID(), "empty doc should have no file ID")
+
+		gd := Document{GoogleFileID: "abc"}
+		assert.False(gd.hasNoFileID(), "doc with GoogleFileID should not be empty")
+
+		sd := Document{FileID: "xyz"}
+		assert.False(sd.hasNoFileID(), "doc with FileID should not be empty")
+	})
+
+	// Find should return both documents.
+	t.Run("Find returns docs from both backends", func(t *testing.T) {
+		var docs Documents
+		err := docs.Find(db, "status = ?", WIPDocumentStatus)
+		require.NoError(err)
+		require.Len(docs, 2)
+		titles := []string{docs[0].Title, docs[1].Title}
+		assert.Contains(titles, "Google Doc")
+		assert.Contains(titles, "SharePoint Doc")
+	})
+
+	// Upsert each doc independently.
+	t.Run("Upsert Google doc", func(t *testing.T) {
+		d := Document{
+			GoogleFileID: "google-doc-123",
+			DocumentType: DocumentType{Name: "DT1"},
+			Product:      Product{Name: "Product1"},
+			Title:        "Google Doc Updated",
+			Status:       InReviewDocumentStatus,
+		}
+		require.NoError(d.Upsert(db))
+
+		d2 := Document{GoogleFileID: "google-doc-123"}
+		require.NoError(d2.Get(db))
+		assert.Equal("Google Doc Updated", d2.Title)
+	})
+
+	t.Run("Upsert SharePoint doc", func(t *testing.T) {
+		d := Document{
+			FileID:       "sharepoint-doc-456",
+			DocumentType: DocumentType{Name: "DT1"},
+			Product:      Product{Name: "Product1"},
+			Title:        "SharePoint Doc Updated",
+			Status:       InReviewDocumentStatus,
+		}
+		require.NoError(d.Upsert(db))
+
+		d2 := Document{FileID: "sharepoint-doc-456"}
+		require.NoError(d2.Get(db))
+		assert.Equal("SharePoint Doc Updated", d2.Title)
+	})
+
+	// Delete each doc independently.
+	t.Run("Delete Google doc", func(t *testing.T) {
+		d := Document{GoogleFileID: "google-doc-123"}
+		require.NoError(d.Delete(db))
+
+		d2 := Document{GoogleFileID: "google-doc-123"}
+		assert.Error(d2.Get(db))
+	})
+
+	t.Run("SharePoint doc still exists after Google doc deleted", func(t *testing.T) {
+		d := Document{FileID: "sharepoint-doc-456"}
+		require.NoError(d.Get(db))
+		assert.Equal("SharePoint Doc Updated", d.Title)
+	})
+
+	t.Run("Delete SharePoint doc", func(t *testing.T) {
+		d := Document{FileID: "sharepoint-doc-456"}
+		require.NoError(d.Delete(db))
+
+		d2 := Document{FileID: "sharepoint-doc-456"}
+		assert.Error(d2.Get(db))
+	})
+
+	// Verify both are gone.
+	t.Run("Both documents deleted", func(t *testing.T) {
+		var docs Documents
+		err := docs.Find(db, fmt.Sprintf("status = %d OR status = %d",
+			WIPDocumentStatus, InReviewDocumentStatus))
+		require.NoError(err)
+		assert.Empty(docs)
 	})
 }

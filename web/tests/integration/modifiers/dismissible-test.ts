@@ -1,7 +1,6 @@
 import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
 import {
-  TestContext,
   click,
   fillIn,
   find,
@@ -9,6 +8,7 @@ import {
   triggerEvent,
   triggerKeyEvent,
 } from "@ember/test-helpers";
+import type { TestContext } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
 import { assert as emberAssert } from "@ember/debug";
 

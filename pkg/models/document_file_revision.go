@@ -18,11 +18,22 @@ type DocumentFileRevision struct {
 	Document   Document
 	DocumentID uint `gorm:"primaryKey"`
 
-	// GoogleDriveFileRevisionID is the ID of the Google Drive file revision.
-	GoogleDriveFileRevisionID string `gorm:"primaryKey"`
+	// FileRevisionID is the universal ID for the file revision (SharePoint or Google Drive).
+	FileRevisionID string `gorm:"primaryKey"`
 
 	// Name is the name of the document file revision.
 	Name string `gorm:"primaryKey"`
+
+	// GoogleDriveFileRevisionID is the legacy Google Drive revision ID.
+	// RETAINED FOR MIGRATION: Existing Google-deployed databases have rows keyed
+	// by this column. It is preserved as a nullable field so that:
+	//   1. Existing data is not lost during the schema migration (GORM AutoMigrate
+	//      adds the new FileRevisionID column; the old column stays).
+	//   2. Rollback to a pre-merge version is possible without data loss.
+	//   3. Migration scripts can copy GoogleDriveFileRevisionID → FileRevisionID
+	//      for existing rows, then this column can be dropped in a future release.
+	// New code should read/write FileRevisionID exclusively.
+	GoogleDriveFileRevisionID *string `gorm:"default:null"`
 }
 
 // DocumentFileRevisions is a slice of document file revisions.
@@ -45,7 +56,7 @@ func (fr *DocumentFileRevision) Create(db *gorm.DB) error {
 	// Validate fields.
 	if err := validation.ValidateStruct(fr,
 		validation.Field(&fr.DocumentID, validation.Required),
-		validation.Field(&fr.GoogleDriveFileRevisionID, validation.Required),
+		validation.Field(&fr.FileRevisionID, validation.Required),
 		validation.Field(&fr.Name, validation.Required),
 	); err != nil {
 		return err
@@ -95,7 +106,7 @@ func (fr *DocumentFileRevision) Get(db *gorm.DB) error {
 	// Validate fields.
 	if err := validation.ValidateStruct(fr,
 		validation.Field(&fr.DocumentID, validation.Required),
-		validation.Field(&fr.GoogleDriveFileRevisionID, validation.Required),
+		validation.Field(&fr.FileRevisionID, validation.Required),
 		validation.Field(&fr.Name, validation.Required),
 	); err != nil {
 		return err

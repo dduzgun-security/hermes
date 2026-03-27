@@ -14,8 +14,25 @@ import (
 type Document struct {
 	gorm.Model
 
-	// GoogleFileID is the Google Drive file ID of the document.
-	GoogleFileID string `gorm:"index;not null;unique"`
+	// GoogleFileID is the Google Drive file ID. Used when running in Google Workspace mode.
+	// For SharePoint deployments, this field is empty/null.
+	//
+	// DUAL-PROVIDER DESIGN:
+	//   We keep both GoogleFileID and FileID as separate columns so that:
+	//   1. Existing Google-path code continues to work without changes.
+	//   2. SharePoint-path code uses FileID without touching GoogleFileID.
+	//   3. Database rows from Google deployments retain their original IDs;
+	//      a migration script can populate FileID from GoogleFileID if a
+	//      deployment later switches providers.
+	//   4. Rollback is safe — the GoogleFileID column is never dropped.
+	//   Use GetFileIdentifier() to read the active ID regardless of provider.
+	//   Use NewDocumentByFileID(id, useSharePoint) to construct a Document
+	//   with the correct field populated.
+	GoogleFileID string `gorm:"index;default:null"`
+
+	// FileID is the SharePoint/generic file ID. Used when running in SharePoint mode.
+	// For Google deployments, this field is empty/null.
+	FileID string `gorm:"index;default:null"`
 
 	// Approvers is the list of users whose approval is requested for the
 	// document.
@@ -73,6 +90,10 @@ type Document struct {
 	// status.
 	ShareableAsDraft bool
 
+	// Archived is true if the document has been archived. Only drafts (WIP status)
+	// can be archived, and only by the owner.
+	Archived bool
+
 	// Summary is a summary of the document.
 	Summary *string
 
@@ -96,6 +117,38 @@ const (
 	ObsoleteDocumentStatus
 )
 
+// NewDocumentByFileID creates a Document with the correct file-ID field
+// populated based on whether SharePoint is in use.
+// When useSharePoint is true it sets FileID; otherwise it sets GoogleFileID.
+func NewDocumentByFileID(fileID string, useSharePoint bool) Document {
+	if useSharePoint {
+		return Document{FileID: fileID}
+	}
+	return Document{GoogleFileID: fileID}
+}
+
+// GetFileIdentifier returns the active file ID regardless of which provider
+// is active. SharePoint docs use FileID; Google docs use GoogleFileID.
+func (d *Document) GetFileIdentifier() string {
+	if d.FileID != "" {
+		return d.FileID
+	}
+	return d.GoogleFileID
+}
+
+// hasNoFileID returns true if the document has no file identifier set.
+func (d *Document) hasNoFileID() bool {
+	return d.GoogleFileID == "" && d.FileID == ""
+}
+
+// BeforeCreate validates that every document has at least one file identifier.
+func (d *Document) BeforeCreate(tx *gorm.DB) error {
+	if d.hasNoFileID() {
+		return fmt.Errorf("document must have either GoogleFileID or FileID")
+	}
+	return nil
+}
+
 // BeforeSave is a hook used to find associations before saving.
 func (d *Document) BeforeSave(tx *gorm.DB) error {
 	if err := d.getAssociations(tx); err != nil {
@@ -110,14 +163,8 @@ func (d *Document) Create(db *gorm.DB) error {
 	if err := validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
@@ -131,8 +178,11 @@ func (d *Document) Create(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.
 			Model(&d).
-			Where(Document{GoogleFileID: d.GoogleFileID}).
-			Omit(clause.Associations). // We get associations in the BeforeSave hook.
+			Where(Document{
+				GoogleFileID: d.GoogleFileID,
+				FileID:       d.FileID,
+			}).
+			Omit(clause.Associations).
 			Create(&d).
 			Error; err != nil {
 			return err
@@ -151,25 +201,24 @@ func (d *Document) Delete(db *gorm.DB) error {
 	if err := validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
 		return err
 	}
 
-	return db.
-		Model(&d).
-		Where(Document{GoogleFileID: d.GoogleFileID}).
-		Delete(&d).
-		Error
+	query := db.Model(&d)
+	if d.GoogleFileID != "" {
+		query = query.Where("google_file_id = ?", d.GoogleFileID)
+	} else if d.FileID != "" {
+		query = query.Where("file_id = ?", d.FileID)
+	} else {
+		query = query.Where("id = ?", d.ID)
+	}
+
+	return query.Delete(&d).Error
 }
 
 // Find finds all documents from database db with the provided query, and
@@ -187,7 +236,7 @@ func (d *Documents) Find(
 // record if it does not exist.
 // func (d *Document) FirstOrCreate(db *gorm.DB) error {
 // 	return db.
-// 		Where(Document{GoogleFileID: d.GoogleFileID}).
+// 		Where(Document{FileID: d.FileID}).
 // 		Preload(clause.Associations).
 // 		FirstOrCreate(&d).Error
 // }
@@ -198,22 +247,24 @@ func (d *Document) Get(db *gorm.DB) error {
 	if err := validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
 		return err
 	}
 
-	if err := db.
-		Where(Document{GoogleFileID: d.GoogleFileID}).
+	query := db
+	if d.GoogleFileID != "" {
+		query = query.Where("google_file_id = ?", d.GoogleFileID)
+	} else if d.FileID != "" {
+		query = query.Where("file_id = ?", d.FileID)
+	} else {
+		query = query.Where("id = ?", d.ID)
+	}
+
+	if err := query.
 		Preload(clause.Associations).
 		Preload("RelatedResources", func(db *gorm.DB) *gorm.DB {
 			return db.Order("document_related_resources.sort_order ASC")
@@ -269,10 +320,17 @@ func GetLatestProductNumber(db *gorm.DB,
 		First(&d).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, nil
+			// No documents exist, start from 2000 (return 1999 so next will be 2000)
+			return 1999, nil
 		} else {
 			return 0, err
 		}
+	}
+
+	// If highest existing number is below 2000, start from 2000
+	// Otherwise continue the existing sequence
+	if d.DocumentNumber < 2000 {
+		return 1999, nil
 	}
 
 	return d.DocumentNumber, nil
@@ -283,14 +341,8 @@ func (d *Document) GetProjects(db *gorm.DB) ([]Project, error) {
 	if err := validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
@@ -301,6 +353,7 @@ func (d *Document) GetProjects(db *gorm.DB) ([]Project, error) {
 	if d.ID == 0 {
 		doc := &Document{
 			GoogleFileID: d.GoogleFileID,
+			FileID:       d.FileID,
 		}
 		if err := doc.Get(db); err != nil {
 			return nil, fmt.Errorf("error getting document: %w", err)
@@ -330,14 +383,8 @@ func (d *Document) ReplaceRelatedResources(
 	if err := validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
@@ -348,6 +395,7 @@ func (d *Document) ReplaceRelatedResources(
 	if d.ID == 0 {
 		doc := &Document{
 			GoogleFileID: d.GoogleFileID,
+			FileID:       d.FileID,
 		}
 		if err := doc.Get(db); err != nil {
 			return fmt.Errorf("error getting document: %w", err)
@@ -414,14 +462,8 @@ func (d *Document) GetRelatedResources(db *gorm.DB) (
 	if err = validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
@@ -475,21 +517,14 @@ func (d *Document) Upsert(db *gorm.DB) error {
 	if err := validation.ValidateStruct(d,
 		validation.Field(
 			&d.ID,
-			validation.When(d.GoogleFileID == "",
-				validation.Required.Error("either ID or GoogleFileID is required"),
-			),
-		),
-		validation.Field(
-			&d.GoogleFileID,
-			validation.When(d.ID == 0,
-				validation.Required.Error("either ID or GoogleFileID is required"),
+			validation.When(d.hasNoFileID(),
+				validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 			),
 		),
 	); err != nil {
 		return err
 	}
 
-	// Create required associations.
 	if err := d.createAssocations(db); err != nil {
 		return fmt.Errorf("error creating associations: %w", err)
 	}
@@ -497,16 +532,18 @@ func (d *Document) Upsert(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.
 			Model(&d).
-			Where(Document{GoogleFileID: d.GoogleFileID}).
+			Where(Document{
+				GoogleFileID: d.GoogleFileID,
+				FileID:       d.FileID,
+			}).
 			Select("*").
-			Omit(clause.Associations). // We manage associations in the BeforeSave hook.
+			Omit(clause.Associations).
 			Assign(*d).
 			FirstOrCreate(&d).
 			Error; err != nil {
 			return err
 		}
 
-		// Replace has-many associations because we may have removed instances.
 		if err := d.replaceAssocations(tx); err != nil {
 			return fmt.Errorf("error replacing associations: %w", err)
 		}
@@ -701,14 +738,8 @@ func (d *Document) replaceAssocations(db *gorm.DB) error {
 		if err := validation.ValidateStruct(d,
 			validation.Field(
 				&d.ID,
-				validation.When(d.GoogleFileID == "",
-					validation.Required.Error("either ID or GoogleFileID is required"),
-				),
-			),
-			validation.Field(
-				&d.GoogleFileID,
-				validation.When(d.ID == 0,
-					validation.Required.Error("either ID or GoogleFileID is required"),
+				validation.When(d.hasNoFileID(),
+					validation.Required.Error("either ID, GoogleFileID, or FileID is required"),
 				),
 			),
 		); err != nil {
@@ -719,6 +750,7 @@ func (d *Document) replaceAssocations(db *gorm.DB) error {
 		if d.ID == 0 {
 			doc := &Document{
 				GoogleFileID: d.GoogleFileID,
+				FileID:       d.FileID,
 			}
 			if err := doc.Get(db); err != nil {
 				return fmt.Errorf("error getting document: %w", err)

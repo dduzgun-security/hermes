@@ -245,7 +245,7 @@ func migrateIndex(
 
 		// Convert document to a document database model.
 		dbDoc, reviews, err := doc.ToDatabaseModels(
-			m.Config.DocumentTypes.DocumentType, m.Config.Products.Product)
+			m.Config.DocumentTypes.DocumentType, m.Config.Products.Product, false)
 		if err != nil {
 			m.Logger.Error("error converting document to database models",
 				"error", err,
@@ -283,7 +283,7 @@ func migrateIndex(
 						m.Logger.Error("error creating document",
 							"error", err,
 						)
-						*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GoogleFileID)
+						*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GetFileIdentifier())
 						continue
 					}
 
@@ -294,7 +294,7 @@ func migrateIndex(
 				} else {
 					*m.DocsCreated += 1
 
-					logArgs := []any{"document_id", dbDoc.GoogleFileID}
+					logArgs := []any{"document_id", dbDoc.GetFileIdentifier()}
 					// Log additional document information if the verbose flag is true.
 					if m.Verbose {
 						if err == nil {
@@ -317,7 +317,7 @@ func migrateIndex(
 					"error", err,
 					"document_id", doc.ObjectID,
 				)
-				*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GoogleFileID)
+				*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GetFileIdentifier())
 				continue
 			}
 		} else {
@@ -345,7 +345,7 @@ func migrateIndex(
 					"error", err,
 					"document_id", doc.ObjectID,
 				)
-				*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GoogleFileID)
+				*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GetFileIdentifier())
 				continue
 			}
 
@@ -376,7 +376,7 @@ func migrateIndex(
 						for revID, revName := range doc.FileRevisions {
 							frExists := false
 							for _, fr := range dbFileRevs {
-								if fr.GoogleDriveFileRevisionID == revID && fr.Name == revName {
+								if fr.FileRevisionID == revID && fr.Name == revName {
 									frExists = true
 									break
 								}
@@ -386,8 +386,8 @@ func migrateIndex(
 									Document: models.Document{
 										GoogleFileID: doc.ObjectID,
 									},
-									GoogleDriveFileRevisionID: revID,
-									Name:                      revName,
+									FileRevisionID: revID,
+									Name:           revName,
 								}
 								if err := fr.Create(tx); err != nil {
 									return fmt.Errorf("error creating new file revision: %w", err)
@@ -408,7 +408,7 @@ func migrateIndex(
 							"error", err,
 							"document_id", doc.ObjectID,
 						)
-						*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GoogleFileID)
+						*m.DocsWithErrors = append(*m.DocsWithErrors, dbDoc.GetFileIdentifier())
 						continue
 					}
 

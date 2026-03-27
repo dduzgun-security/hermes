@@ -109,6 +109,10 @@ type Document struct {
 	// "Obsolete").
 	Status string `json:"status,omitempty"`
 
+	// Archived indicates whether the draft document is archived.
+	// Only applies to draft documents (status "WIP").
+	Archived bool `json:"archived,omitempty"`
+
 	// Tags is a slice of tags to help users discover the document based on their
 	// interests.
 	Tags []string `json:"tags,omitempty"`
@@ -245,7 +249,7 @@ func NewFromDatabaseModel(
 	doc := &Document{}
 
 	// ObjectID.
-	doc.ObjectID = model.GoogleFileID
+	doc.ObjectID = model.GetFileIdentifier()
 
 	// Title.
 	doc.Title = model.Title
@@ -348,7 +352,7 @@ func NewFromDatabaseModel(
 	// FileRevisions.
 	fileRevisions := make(map[string]string)
 	for _, fr := range model.FileRevisions {
-		fileRevisions[fr.GoogleDriveFileRevisionID] = fr.Name
+		fileRevisions[fr.FileRevisionID] = fr.Name
 	}
 	doc.FileRevisions = fileRevisions
 
@@ -389,6 +393,9 @@ func NewFromDatabaseModel(
 	}
 	doc.Status = status
 
+	// Archived.
+	doc.Archived = model.Archived
+
 	// Note: ThumbnailLink is not stored in the database.
 
 	return doc, nil
@@ -426,17 +433,16 @@ func (d Document) ToAlgoliaObject(
 }
 
 // ToDatabaseModels converts a document to a document and document reviews
-// database records.
+// database records. useSharePoint controls which file ID field is populated:
+// true → FileID (SharePoint), false → GoogleFileID (Google).
 func (d Document) ToDatabaseModels(
 	docTypes []*config.DocumentType, products []*config.Product,
+	useSharePoint bool,
 ) (
 	models.Document, models.DocumentReviews, error,
 ) {
-	doc := models.Document{}
+	doc := models.NewDocumentByFileID(d.ObjectID, useSharePoint)
 	reviews := models.DocumentReviews{}
-
-	// GoogleFileID.
-	doc.GoogleFileID = d.ObjectID
 
 	// Title.
 	doc.Title = d.Title
@@ -525,11 +531,9 @@ func (d Document) ToDatabaseModels(
 	fileRevisions := models.DocumentFileRevisions{}
 	for frID, frName := range d.FileRevisions {
 		fileRevisions = append(fileRevisions, models.DocumentFileRevision{
-			Document: models.Document{
-				GoogleFileID: doc.GoogleFileID,
-			},
-			GoogleDriveFileRevisionID: frID,
-			Name:                      frName,
+			Document:       models.NewDocumentByFileID(doc.GetFileIdentifier(), useSharePoint),
+			FileRevisionID: frID,
+			Name:           frName,
 		})
 	}
 	doc.FileRevisions = fileRevisions
@@ -596,19 +600,15 @@ func (d Document) ToDatabaseModels(
 
 		if helpers.StringSliceContains(d.ApprovedBy, a) {
 			reviews = append(reviews, models.DocumentReview{
-				Document: models.Document{
-					GoogleFileID: d.ObjectID,
-				},
-				User:   u,
-				Status: models.ApprovedDocumentReviewStatus,
+				Document: models.NewDocumentByFileID(d.ObjectID, useSharePoint),
+				User:     u,
+				Status:   models.ApprovedDocumentReviewStatus,
 			})
 		} else if helpers.StringSliceContains(d.ChangesRequestedBy, a) {
 			reviews = append(reviews, models.DocumentReview{
-				Document: models.Document{
-					GoogleFileID: d.ObjectID,
-				},
-				User:   u,
-				Status: models.ChangesRequestedDocumentReviewStatus,
+				Document: models.NewDocumentByFileID(d.ObjectID, useSharePoint),
+				User:     u,
+				Status:   models.ChangesRequestedDocumentReviewStatus,
 			})
 		}
 	}

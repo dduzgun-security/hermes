@@ -1,24 +1,25 @@
 import Service from "@ember/service";
-import algoliaSearch, { SearchClient, SearchIndex } from "algoliasearch";
-import { SearchForFacetValuesResponse } from "@algolia/client-search";
+import type { SearchClient, SearchIndex } from "algoliasearch";
+import algoliaSearch from "algoliasearch";
+import type { SearchForFacetValuesResponse } from "@algolia/client-search";
 import config from "hermes/config/environment";
 import { inject as service } from "@ember/service";
 import { restartableTask, task } from "ember-concurrency";
-import AuthenticatedUserService from "hermes/services/authenticated-user";
-import { RequestOptions } from "@algolia/transporter";
-import { SearchOptions, SearchResponse } from "@algolia/client-search";
+import type AuthenticatedUserService from "hermes/services/authenticated-user";
+import type { RequestOptions } from "@algolia/transporter";
+import type { SearchOptions, SearchResponse } from "@algolia/client-search";
 import { assert } from "@ember/debug";
-import ConfigService from "./config";
-import {
+import type ConfigService from "./config";
+import type {
   FacetDropdownGroups,
-  FacetDropdownObjectDetails,
   FacetRecord,
   FacetRecords,
+  FacetDropdownObjectDetails
 } from "hermes/types/facets";
-import SessionService from "./session";
+import type SessionService from "./session";
 import { SearchScope } from "hermes/routes/authenticated/results";
 import { FacetName } from "hermes/components/header/toolbar";
-import StoreService from "./_store";
+import type StoreService from "./_store";
 
 // FIXME: drafts endpoint breaks when you increase this number (to 100, e.g.)
 export const HITS_PER_PAGE = 12;
@@ -72,37 +73,54 @@ export default class AlgoliaService extends Service {
       window.location.hostname === "127.0.0.1" ||
       window.location.hostname === "localhost"
     ) {
-      console.log(
-        "Running locally as production environment: Algolia client configured to proxy requests through the Hermes API.",
-      );
+      const headers: Record<string, string> | undefined =
+        this.configSvc.config.skip_google_auth
+          ? undefined
+          : {
+              "Hermes-Google-Access-Token":
+                this.session.data.authenticated.access_token,
+            };
+
       return algoliaSearch("", "", {
-        headers: {
-          "Hermes-Google-Access-Token":
-            this.session.data.authenticated.access_token,
-        },
+        headers,
         hosts: [
           {
-            protocol: "http",
+            protocol: window.location.protocol.replace(":", ""),
             url: window.location.hostname + ":" + window.location.port,
           },
         ],
+        timeouts: {
+          connect: 5000,
+          read: 10000,
+          write: 10000,
+        },
       });
     }
     /**
      * If running remotely as production, use HTTPS and route Algolia requests
      * through the Hermes API.
      */
+    const headers: Record<string, string> | undefined =
+      this.configSvc.config.skip_google_auth
+        ? undefined
+        : {
+            "Hermes-Google-Access-Token":
+              this.session.data.authenticated.access_token,
+          };
+
     return algoliaSearch("", "", {
-      headers: {
-        "Hermes-Google-Access-Token":
-          this.session.data.authenticated.access_token,
-      },
+      headers,
       hosts: [
         {
           protocol: "https",
           url: window.location.hostname + ":" + window.location.port,
         },
       ],
+      timeouts: {
+          connect: 5000,
+          read: 10000,
+          write: 10000,
+        },
     });
   }
 
@@ -110,7 +128,9 @@ export default class AlgoliaService extends Service {
    * An Algolia SearchClient.
    * Used to initialize an environment-scoped SearchIndex.
    */
-  private client: SearchClient = this.createClient();
+  private get client(): SearchClient {
+    return this.createClient();
+  }
 
   /**
    * An Algolia SearchIndex scoped to the environment.

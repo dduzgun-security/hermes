@@ -1,8 +1,11 @@
 module.exports = {
+  root: true,
   plugins: ["ember", "@typescript-eslint"],
   parser: "@typescript-eslint/parser",
   parserOptions: {
-    project: "web/tsconfig.json",
+    project: "./tsconfig.json",
+    ecmaVersion: 'latest',
+    sourceType: 'module',
   },
   ignorePatterns: ["*.js", "/mirage/**/*", "/node_modules/**/*", "/dist/**/*"],
   extends: [
@@ -12,6 +15,7 @@ module.exports = {
   ],
 
   rules: {
+    "@typescript-eslint/consistent-type-imports": "error",
     "@typescript-eslint/no-explicit-any": "off",
     "@typescript-eslint/no-unsafe-member-access": "off",
     "@typescript-eslint/no-unsafe-call": "off",
@@ -41,4 +45,41 @@ module.exports = {
     "no-empty": "off",
     "require-yield": "off",
   },
+  overrides: [
+    // node files
+    {
+      files: [
+        './.eslintrc.js',
+        './.prettierrc.js',
+        './.stylelintrc.js',
+        './.template-lintrc.js',
+        './ember-cli-build.js',
+        './testem.js',
+        './blueprints/*/index.js',
+        './config/**/*.js',
+        './lib/*/index.js',
+        './server/**/*.js',
+      ],
+      parser: '@babel/eslint-parser',
+      parserOptions: {
+        sourceType: 'script',
+        requireConfigFile: false,
+        babelOptions: {
+          plugins: [
+            ['@babel/plugin-proposal-decorators', { decoratorsBeforeExport: true }],
+          ],
+        },
+      },
+      env: {
+        browser: false,
+        node: true,
+      },
+      extends: ['plugin:n/recommended'],
+    },
+    {
+      // test files
+      files: ['tests/**/*-test.{js,ts}'],
+      extends: ['plugin:qunit/recommended'],
+    },
+  ],
 };

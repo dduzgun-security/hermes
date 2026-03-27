@@ -1,10 +1,11 @@
 import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { render, waitFor } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import LatestDocsService from "hermes/services/latest-docs";
-import ActiveFiltersService from "hermes/services/active-filters";
+import type LatestDocsService from "hermes/services/latest-docs";
+import type ActiveFiltersService from "hermes/services/active-filters";
 
 const NO_DOCS_PUBLISHED = "[data-test-no-docs-published]";
 const LATEST_DOC = "[data-test-latest-doc]";
@@ -32,7 +33,7 @@ module("Integration | Component | dashboard/latest-docs", function (hooks) {
 
     const latestDocs = this.owner.lookup(
       "service:latest-docs",
-    ) as LatestDocsService;
+    );
 
     latestDocs.index = this.server.schema.document.all().models;
 
@@ -56,7 +57,7 @@ module("Integration | Component | dashboard/latest-docs", function (hooks) {
 
     const latestDocs = this.owner.lookup(
       "service:latest-docs",
-    ) as LatestDocsService;
+    );
 
     latestDocs.index = this.server.schema.document.all().models;
     latestDocs.nbPages = 2;
@@ -79,7 +80,7 @@ module("Integration | Component | dashboard/latest-docs", function (hooks) {
 
     const latestDocs = this.owner.lookup(
       "service:latest-docs",
-    ) as LatestDocsService;
+    );
 
     await render<Context>(hbs`
       <Dashboard::LatestDocs />

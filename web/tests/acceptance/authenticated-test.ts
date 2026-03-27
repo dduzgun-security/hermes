@@ -1,13 +1,15 @@
 import { currentURL, visit } from "@ember/test-helpers";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { setupApplicationTest } from "ember-qunit";
 import {
   authenticateSession,
   invalidateSession,
 } from "ember-simple-auth/test-support";
-import SessionService from "hermes/services/_session";
-import ProductAreasService, {
-  ProductArea,
+import type SessionService from "hermes/services/_session";
+import type ProductAreasService from "hermes/services/product-areas";
+import {
+  type ProductArea,
 } from "hermes/services/product-areas";
 import { module, test } from "qunit";
 import { startFactories } from "../mirage-helpers/utils";
@@ -51,8 +53,8 @@ module("Acceptance | authenticated", function (hooks) {
 
     await visit("/");
 
-    assert.equal("Foo", Object.keys(productAreas.index)[0]);
-    assert.equal("BAR", productAreas.index["Foo"]?.abbreviation);
+    assert.equal(Object.keys(productAreas.index)[0], "Foo");
+    assert.equal(productAreas.index["Foo"]?.abbreviation, "BAR");
   });
 
   test("after login, it kicks off a task to poll for expired auth", async function (this: AuthenticatedRouteTestContext, assert) {

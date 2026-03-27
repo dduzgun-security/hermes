@@ -1,8 +1,9 @@
 import { module, test } from "qunit";
 import { setupTest } from "ember-qunit";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { waitUntil } from "@ember/test-helpers";
-import LatestDocsService from "hermes/services/latest-docs";
+import type LatestDocsService from "hermes/services/latest-docs";
 
 interface Context extends MirageTestContext {
   latestDocs: LatestDocsService;

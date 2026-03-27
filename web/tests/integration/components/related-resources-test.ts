@@ -9,12 +9,13 @@ import {
   waitUntil,
 } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { Response } from "miragejs";
 import config from "hermes/config/environment";
 import algoliaHosts from "hermes/mirage/algolia/hosts";
-import { RelatedResource } from "hermes/components/related-resources";
-import { RelatedResourcesScope } from "hermes/components/related-resources";
+import type { RelatedResource } from "hermes/components/related-resources";
+import type { RelatedResourcesScope } from "hermes/components/related-resources";
 import { authenticateTestUser } from "hermes/mirage/utils";
 
 const RELATED_DOCUMENT_OPTION_SELECTOR = ".related-document-option";

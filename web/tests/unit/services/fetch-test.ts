@@ -1,6 +1,7 @@
 import { module, test } from "qunit";
 import { setupTest } from "ember-qunit";
-import FetchService, { BAD_RESPONSE_LABEL } from "hermes/services/fetch";
+import type FetchService from "hermes/services/fetch";
+import { BAD_RESPONSE_LABEL } from "hermes/services/fetch";
 
 module("Unit | Service | fetch", function (hooks) {
   setupTest(hooks);

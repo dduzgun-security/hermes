@@ -1,5 +1,5 @@
 import { setupTest } from "ember-qunit";
-import ViewportService from "hermes/services/viewport";
+import type ViewportService from "hermes/services/viewport";
 import { module, test } from "qunit";
 import window from "ember-window-mock";
 

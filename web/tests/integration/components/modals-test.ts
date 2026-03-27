@@ -2,7 +2,8 @@ import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
 import { render, rerender } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import ModalAlertsService, { ModalType } from "hermes/services/modal-alerts";
+import type ModalAlertsService from "hermes/services/modal-alerts";
+import { ModalType } from "hermes/services/modal-alerts";
 
 module("Integration | Component | modals", function (hooks) {
   setupRenderingTest(hooks);

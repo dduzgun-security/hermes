@@ -1,4 +1,5 @@
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
 import { authenticateSession } from "ember-simple-auth/test-support";
 import { module, test } from "qunit";
 import {
@@ -27,10 +28,10 @@ import {
 } from "hermes/mirage/utils";
 import MockDate from "mockdate";
 import { DEFAULT_MOCK_DATE } from "hermes/utils/mockdate/dates";
-import RecentlyViewedService from "hermes/services/recently-viewed";
+import type RecentlyViewedService from "hermes/services/recently-viewed";
 import {
-  RelatedExternalLink,
-  RelatedHermesDocument,
+  type RelatedExternalLink,
+  type RelatedHermesDocument,
 } from "hermes/components/related-resources";
 import { assert as emberAssert } from "@ember/debug";
 import { MoveOptionLabel } from "hermes/components/project/resource";
@@ -196,7 +197,7 @@ module("Acceptance | authenticated/projects/project", function (hooks) {
 
     this.server.create("related-hermes-document", {
       id,
-      googleFileID: id,
+      FileID: id,
       sortOrder: 1,
       title: docTitle,
       documentType: docType,
@@ -482,7 +483,7 @@ module("Acceptance | authenticated/projects/project", function (hooks) {
         this.server.schema.projects.first().attrs.hermesDocuments;
 
       const relatedDocIDs = projectDocuments.map(
-        (doc: RelatedHermesDocument) => doc.googleFileID,
+        (doc: RelatedHermesDocument) => doc.FileID,
       );
 
       assert.deepEqual(relatedDocIDs, expectedOrder);
@@ -972,7 +973,7 @@ module("Acceptance | authenticated/projects/project", function (hooks) {
   test("the project is logged with the recently viewed service", async function (this: AuthenticatedProjectsProjectRouteTestContext, assert) {
     const recentlyViewed = this.owner.lookup(
       "service:recently-viewed",
-    ) as RecentlyViewedService;
+    );
 
     assert.equal(recentlyViewed.index, undefined);
 

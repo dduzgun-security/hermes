@@ -1,11 +1,11 @@
 import Service from "@ember/service";
-import fetch from "fetch";
 import { inject as service } from "@ember/service";
-import ConfigService from "hermes/services/config";
-import SessionService from "./session";
+import type ConfigService from "hermes/services/config";
+import type SessionService from "./session";
 
 interface FetchOptions {
   method?: string;
+  redirect?: RequestRedirect;
   headers?: {
     [key: string]: string;
   };
@@ -90,7 +90,7 @@ export default class FetchService extends Service {
           // reauthenticate.
           this.session.pollResponseIs401 = true;
         } else {
-          // Reload to redirect to Okta login.
+          // Reload to redirect to OIDC login.
           window.location.reload();
         }
       } else {

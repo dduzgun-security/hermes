@@ -1,8 +1,9 @@
 import { module, test } from "qunit";
 import { setupRenderingTest } from "ember-qunit";
-import { TestContext, render } from "@ember/test-helpers";
+import { render } from "@ember/test-helpers";
+import type { TestContext } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import { CheckmarkPosition } from "hermes/components/x/dropdown-list/checkable-item";
+import type { CheckmarkPosition } from "hermes/components/x/dropdown-list/checkable-item";
 
 const ITEM = "[data-test-checkable-item]";
 const CHECK = "[data-test-x-dropdown-list-checkable-item-check]";

@@ -35,11 +35,8 @@ type DocumentReviews []DocumentReview
 // BeforeSave is a hook to find or create associations before saving.
 func (d *DocumentReview) BeforeSave(tx *gorm.DB) error {
 	// Validate required fields.
-	if err := validation.ValidateStruct(&d.Document,
-		validation.Field(
-			&d.Document.GoogleFileID, validation.Required),
-	); err != nil {
-		return err
+	if d.Document.hasNoFileID() {
+		return fmt.Errorf("document must have either GoogleFileID or FileID")
 	}
 	if err := validation.ValidateStruct(&d.User,
 		validation.Field(
@@ -59,21 +56,14 @@ func (d *DocumentReview) BeforeSave(tx *gorm.DB) error {
 // the receiver.
 func (d *DocumentReviews) Find(db *gorm.DB, dr DocumentReview) error {
 	// Validate required fields.
-	if err := validation.ValidateStruct(&dr.Document,
-		validation.Field(
-			&dr.Document.GoogleFileID,
-			validation.When(dr.User.EmailAddress == "",
-				validation.Required.Error("at least a Document's GoogleFileID or User's EmailAddress is required"),
-			),
-		),
-	); err != nil {
-		return err
+	if dr.Document.hasNoFileID() && dr.User.EmailAddress == "" {
+		return fmt.Errorf("at least a Document's file ID or User's EmailAddress is required")
 	}
 	if err := validation.ValidateStruct(&dr.User,
 		validation.Field(
 			&dr.User.EmailAddress,
-			validation.When(dr.Document.GoogleFileID == "",
-				validation.Required.Error("at least a Document's GoogleFileID or User's EmailAddress is required"),
+			validation.When(dr.Document.hasNoFileID(),
+				validation.Required.Error("at least a Document's FileID or User's EmailAddress is required"),
 			),
 		),
 	); err != nil {
@@ -81,7 +71,7 @@ func (d *DocumentReviews) Find(db *gorm.DB, dr DocumentReview) error {
 	}
 
 	// Get document.
-	if dr.Document.GoogleFileID != "" {
+	if !dr.Document.hasNoFileID() {
 		if err := dr.Document.Get(db); err != nil {
 			return fmt.Errorf("error getting document: %w", err)
 		}
@@ -110,10 +100,8 @@ func (d *DocumentReviews) Find(db *gorm.DB, dr DocumentReview) error {
 // receiver.
 func (d *DocumentReview) Get(db *gorm.DB) error {
 	// Validate required fields.
-	if err := validation.ValidateStruct(&d.Document,
-		validation.Field(&d.Document.GoogleFileID, validation.Required),
-	); err != nil {
-		return err
+	if d.Document.hasNoFileID() {
+		return fmt.Errorf("document must have either GoogleFileID or FileID")
 	}
 	if err := validation.ValidateStruct(&d.User,
 		validation.Field(&d.User.EmailAddress, validation.Required),

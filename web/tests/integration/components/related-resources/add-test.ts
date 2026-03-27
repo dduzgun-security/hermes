@@ -7,10 +7,11 @@ import {
   triggerKeyEvent,
 } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
-import { MirageTestContext, setupMirage } from "ember-cli-mirage/test-support";
-import { HermesDocument } from "hermes/types/document";
-import { XDropdownListAnchorAPI } from "hermes/components/x/dropdown-list";
-import { RelatedResourcesScope } from "hermes/components/related-resources";
+import { setupMirage } from "ember-cli-mirage/test-support";
+import type { MirageTestContext } from "ember-cli-mirage/test-support";
+import type { HermesDocument } from "hermes/types/document";
+import type { XDropdownListAnchorAPI } from "hermes/components/x/dropdown-list";
+import type { RelatedResourcesScope } from "hermes/components/related-resources";
 
 const MODAL_TITLE_SELECTOR = "[data-test-add-related-resource-modal-title]";
 const SEARCH_INPUT_SELECTOR = "[data-test-related-resources-search-input]";

@@ -5,23 +5,25 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strings"
 
 	"github.com/hashicorp-forge/hermes/internal/config"
-	gw "github.com/hashicorp-forge/hermes/pkg/googleworkspace"
+	"github.com/hashicorp-forge/hermes/internal/server"
 	"github.com/hashicorp-forge/hermes/pkg/models"
+	"github.com/hashicorp-forge/hermes/pkg/sharepointhelper"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-multierror"
 	"github.com/iancoleman/strcase"
 	"github.com/stretchr/testify/assert"
 )
 
-// contains returns true if a string is present in a slice of strings.
+// contains returns true if a string is present in a slice of strings (case-insensitive for emails).
 func contains(values []string, s string) bool {
 	for _, v := range values {
-		if s == v {
+		if strings.EqualFold(s, v) {
 			return true
 		}
 	}
@@ -30,25 +32,114 @@ func contains(values []string, s string) bool {
 
 // compareSlices compares the first slice with the second
 // and returns the elements that exist in the second slice
-// that don't exist in the first
+// that don't exist in the first (case-insensitive comparison for email addresses)
 func compareSlices(a, b []string) []string {
-	// Create a map with the length of slice "a"
+	// Create a map with the length of slice "a" using lowercase keys for case-insensitive comparison
 	tempA := make(map[string]bool, len(a))
 	for _, j := range a {
-		tempA[j] = true
+		tempA[strings.ToLower(strings.TrimSpace(j))] = true
 	}
 
 	diffElems := []string{}
 	for _, k := range b {
-		// If elements in slice "b" are
-		// not present in slice "a" then
-		// append to diffElems slice
-		if !tempA[k] {
+		// If elements in slice "b" are not present in slice "a" then append to diffElems slice
+		// Use case-insensitive comparison to avoid false positives from casing differences
+		if !tempA[strings.ToLower(strings.TrimSpace(k))] {
 			diffElems = append(diffElems, k)
 		}
 	}
 
 	return diffElems
+}
+
+// expandStakeholderGroups expands any groups in the stakeholders list to their individual members recursively.
+// It handles nested groups (group within group within group) by using the backend service's
+// group member expansion methods.
+// Individual email addresses are added directly without making unnecessary API calls.
+func expandStakeholderGroups(stakeholders []string, srv server.Server) ([]string, error) {
+	if len(stakeholders) == 0 {
+		return []string{}, nil
+	}
+
+	// Use a map to deduplicate emails (case-insensitive)
+	uniqueEmails := make(map[string]string) // lowercase key -> original email
+
+	for _, stakeholder := range stakeholders {
+		stakeholder = strings.TrimSpace(stakeholder)
+		if stakeholder == "" {
+			continue
+		}
+
+		if srv.SharePoint != nil {
+			// SharePoint path: try to expand as a group using Microsoft Graph
+			members, err := srv.SharePoint.GetGroupMemberEmails(stakeholder)
+			if err != nil {
+				// Not a group or error expanding - treat as individual email
+				srv.Logger.Debug("treating stakeholder as individual email",
+					"stakeholder", stakeholder,
+					"reason", "not a group or expansion failed")
+
+				key := strings.ToLower(stakeholder)
+				if _, exists := uniqueEmails[key]; !exists {
+					uniqueEmails[key] = stakeholder
+				}
+			} else {
+				// Successfully expanded group
+				srv.Logger.Debug("expanded stakeholder group",
+					"group", stakeholder,
+					"member_count", len(members))
+
+				for _, member := range members {
+					member = strings.TrimSpace(member)
+					if member == "" {
+						continue
+					}
+					key := strings.ToLower(member)
+					if _, exists := uniqueEmails[key]; !exists {
+						uniqueEmails[key] = member
+					}
+				}
+			}
+		} else {
+			// Google path: try to expand as a Google Group using Admin Directory
+			groupMembers, err := srv.GWService.AdminDirectory.Members.List(stakeholder).Do()
+			if err != nil {
+				// Not a group or error expanding - treat as individual email
+				srv.Logger.Debug("treating stakeholder as individual email",
+					"stakeholder", stakeholder,
+					"reason", "not a group or expansion failed")
+
+				key := strings.ToLower(stakeholder)
+				if _, exists := uniqueEmails[key]; !exists {
+					uniqueEmails[key] = stakeholder
+				}
+			} else {
+				// Successfully expanded group
+				srv.Logger.Debug("expanded stakeholder group",
+					"group", stakeholder,
+					"member_count", len(groupMembers.Members))
+
+				for _, member := range groupMembers.Members {
+					email := member.Email
+					if email == "" {
+						continue
+					}
+					key := strings.ToLower(email)
+					if _, exists := uniqueEmails[key]; !exists {
+						uniqueEmails[key] = email
+					}
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	result := make([]string, 0, len(uniqueEmails))
+	for _, email := range uniqueEmails {
+		result = append(result, email)
+	}
+
+	return result, nil
 }
 
 // decodeRequest decodes the JSON contents of a HTTP request body to a request
@@ -136,16 +227,16 @@ func CompareAlgoliaAndDatabaseDocument(
 	var result *multierror.Error
 
 	// Compare objectID.
-	algoGoogleFileID, err := getStringValue(algoDoc, "objectID")
+	algoFileID, err := getStringValue(algoDoc, "objectID")
 	if err != nil {
 		result = multierror.Append(
 			result, fmt.Errorf("error getting objectID value: %w", err))
 	}
-	if algoGoogleFileID != dbDoc.GoogleFileID {
+	if algoFileID != dbDoc.GetFileIdentifier() {
 		result = multierror.Append(result,
 			fmt.Errorf(
 				"objectID not equal, algolia=%v, db=%v",
-				algoGoogleFileID, dbDoc.GoogleFileID),
+				algoFileID, dbDoc.GetFileIdentifier()),
 		)
 	}
 
@@ -413,7 +504,7 @@ func CompareAlgoliaAndDatabaseDocument(
 	} else {
 		dbFileRevisions := make(map[string]string)
 		for _, fr := range dbDoc.FileRevisions {
-			dbFileRevisions[fr.GoogleDriveFileRevisionID] = fr.Name
+			dbFileRevisions[fr.FileRevisionID] = fr.Name
 		}
 		if !reflect.DeepEqual(algoFileRevisions, dbFileRevisions) {
 			result = multierror.Append(result,
@@ -532,11 +623,71 @@ func CompareAlgoliaAndDatabaseDocument(
 }
 
 // isUserInGroups returns true if a user is in any supplied groups, false
-// otherwise.
+// otherwise. Works with both SharePoint (Microsoft Graph) and Google backends.
 func isUserInGroups(
-	userEmail string, groupEmails []string, svc *gw.Service) (bool, error) {
-	// Get groups for user.
-	userGroups, err := svc.AdminDirectory.Groups.List().
+	userEmail string, groupEmails []string, srv server.Server) (bool, error) {
+	if len(groupEmails) == 0 {
+		return false, nil
+	}
+
+	if srv.SharePoint != nil {
+		// SharePoint path: use Microsoft Graph API
+		graphURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s/memberOf?$select=id,displayName,mail",
+			url.QueryEscape(userEmail))
+
+		options := &sharepointhelper.APIOptions{
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+		}
+
+		for graphURL != "" {
+			resp, err := srv.SharePoint.InvokeAPIWithOptions("GET", graphURL, nil, options)
+			if err != nil {
+				return false, fmt.Errorf("error making Graph API request for user groups: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				return false, fmt.Errorf("microsoft Graph API returned status %d when fetching user groups", resp.StatusCode)
+			}
+
+			// Parse the response page.
+			var response struct {
+				Value []struct {
+					ID          string `json:"id"`
+					DisplayName string `json:"displayName"`
+					Mail        string `json:"mail"`
+				} `json:"value"`
+				NextLink string `json:"@odata.nextLink"`
+			}
+
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				resp.Body.Close()
+				return false, fmt.Errorf("error decoding user groups response: %w", err)
+			}
+			resp.Body.Close()
+
+			// Check if any of the user's groups match the provided group emails.
+			for _, group := range response.Value {
+				if group.Mail != "" && contains(groupEmails, group.Mail) {
+					return true, nil
+				}
+			}
+
+			graphURL = response.NextLink
+		}
+
+		return false, nil
+	}
+
+	if srv.Config.GoogleWorkspace.GroupApprovals == nil ||
+		!srv.Config.GoogleWorkspace.GroupApprovals.Enabled {
+		return false, nil
+	}
+
+	// Google path: use Admin Directory API
+	userGroups, err := srv.GWService.AdminDirectory.Groups.List().
 		UserKey(userEmail).
 		Do()
 	if err != nil {

@@ -355,3 +355,90 @@ func TestDocumentReviewModel(t *testing.T) {
 			})
 		})
 }
+
+// TestDocumentReviewDualBackend verifies that DocumentReview CRUD operations
+// work with both GoogleFileID and FileID backends.
+func TestDocumentReviewDualBackend(t *testing.T) {
+	dsn := os.Getenv("HERMES_TEST_POSTGRESQL_DSN")
+	if dsn == "" {
+		t.Skip("HERMES_TEST_POSTGRESQL_DSN environment variable isn't set")
+	}
+
+	backends := []struct {
+		name    string
+		makeDoc func(id string) Document
+		getID   func(d Document) string
+	}{
+		{
+			name:    "GoogleFileID",
+			makeDoc: func(id string) Document { return Document{GoogleFileID: id} },
+			getID:   func(d Document) string { return d.GoogleFileID },
+		},
+		{
+			name:    "FileID",
+			makeDoc: func(id string) Document { return Document{FileID: id} },
+			getID:   func(d Document) string { return d.FileID },
+		},
+	}
+
+	for _, backend := range backends {
+		backend := backend
+		t.Run(backend.name, func(t *testing.T) {
+			assert, require := assert.New(t), require.New(t)
+			db, tearDownTest := setupTest(t, dsn)
+			defer tearDownTest(t)
+
+			// Setup.
+			dt := DocumentType{Name: "DT1", LongName: "DocumentType1"}
+			require.NoError(dt.FirstOrCreate(db))
+			p := Product{Name: "Product1", Abbreviation: "P1"}
+			require.NoError(p.FirstOrCreate(db))
+
+			// Create a document with approvers.
+			d := backend.makeDoc("reviewTestFile1")
+			d.DocumentType = DocumentType{Name: "DT1"}
+			d.Product = Product{Name: "Product1"}
+			d.Approvers = []*User{
+				{EmailAddress: "reviewer-a@test.com"},
+				{EmailAddress: "reviewer-b@test.com"},
+			}
+			require.NoError(d.Create(db))
+			assert.Len(d.Approvers, 2)
+
+			// Get a review.
+			t.Run("Get review", func(t *testing.T) {
+				dr := DocumentReview{
+					Document: backend.makeDoc("reviewTestFile1"),
+					User:     User{EmailAddress: "reviewer-b@test.com"},
+				}
+				err := dr.Get(db)
+				require.NoError(err)
+				assert.Equal("reviewTestFile1", backend.getID(dr.Document))
+				assert.Equal("reviewer-b@test.com", dr.User.EmailAddress)
+				assert.Equal(UnspecifiedDocumentReviewStatus, dr.Status)
+			})
+
+			// Update a review.
+			t.Run("Update review", func(t *testing.T) {
+				dr := DocumentReview{
+					Document: backend.makeDoc("reviewTestFile1"),
+					User:     User{EmailAddress: "reviewer-b@test.com"},
+					Status:   ApprovedDocumentReviewStatus,
+				}
+				err := dr.Update(db)
+				require.NoError(err)
+				assert.Equal(ApprovedDocumentReviewStatus, dr.Status)
+			})
+
+			// Find reviews for document.
+			t.Run("Find reviews", func(t *testing.T) {
+				var revs DocumentReviews
+				err := revs.Find(db, DocumentReview{
+					Document: backend.makeDoc("reviewTestFile1"),
+				})
+				require.NoError(err)
+				require.Len(revs, 2)
+			})
+		})
+	}
+}

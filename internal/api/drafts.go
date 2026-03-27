@@ -14,6 +14,7 @@ import (
 	"github.com/algolia/algoliasearch-client-go/v3/algolia/opt"
 	"github.com/algolia/algoliasearch-client-go/v3/algolia/search"
 	"github.com/hashicorp-forge/hermes/internal/config"
+	"github.com/hashicorp-forge/hermes/internal/server"
 	"github.com/hashicorp-forge/hermes/pkg/algolia"
 	"github.com/hashicorp-forge/hermes/pkg/document"
 	gw "github.com/hashicorp-forge/hermes/pkg/googleworkspace"
@@ -112,7 +113,12 @@ func DraftsHandler(
 			}
 
 			// Get doc type template.
-			template := getDocTypeTemplate(cfg.DocumentTypes.DocumentType, req.DocType)
+			// Check if we're using Microsoft Graph (if it's available in the server)
+			useMicrosoftGraph := false
+			if srv, ok := interface{}(s).(*server.Server); ok {
+				useMicrosoftGraph = srv.SharePoint != nil
+			}
+			template := getDocTypeTemplate(cfg.DocumentTypes.DocumentType, req.DocType, useMicrosoftGraph)
 			if template == "" {
 				l.Error("Bad request: no template configured for doc type", "doc_type", req.DocType)
 				http.Error(w,
@@ -125,7 +131,7 @@ func DraftsHandler(
 			if req.ProductAbbreviation == "" {
 				req.ProductAbbreviation = "TODO"
 			}
-			title := fmt.Sprintf("[%s-???] %s", req.ProductAbbreviation, req.Title)
+			title := fmt.Sprintf("[%s-xxx] %s.docx", req.ProductAbbreviation, req.Title)
 
 			var (
 				err error
@@ -175,6 +181,7 @@ func DraftsHandler(
 						"drafts_folder", cfg.GoogleWorkspace.DraftsFolder,
 						"temporary_drafts_folder", cfg.GoogleWorkspace.
 							TemporaryDraftsFolder,
+						"user", userEmail,
 					)
 					http.Error(w, "Error creating document draft",
 						http.StatusInternalServerError)
@@ -190,7 +197,7 @@ func DraftsHandler(
 						"error", err,
 						"method", r.Method,
 						"path", r.URL.Path,
-						"doc_id", f.Id,
+						"template", template,
 						"drafts_folder", cfg.GoogleWorkspace.DraftsFolder,
 						"temporary_drafts_folder", cfg.GoogleWorkspace.
 							TemporaryDraftsFolder,
@@ -199,21 +206,68 @@ func DraftsHandler(
 						http.StatusInternalServerError)
 					return
 				}
+			}
+
+			// Move draft file to drafts folder using service user.
+			_, err = s.MoveFile(
+				f.Id, cfg.GoogleWorkspace.DraftsFolder)
+			if err != nil {
+				l.Error(
+					"error moving draft file to drafts folder",
+					"error", err,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"doc_id", f.Id,
+					"drafts_folder", cfg.GoogleWorkspace.DraftsFolder,
+					"temporary_drafts_folder", cfg.GoogleWorkspace.
+						TemporaryDraftsFolder,
+				)
+				http.Error(w, "Error creating document draft",
+					http.StatusInternalServerError)
+				return
 			} else {
-				// Copy template to new draft file as service user.
-				f, err = s.CopyFile(
-					template, title, cfg.GoogleWorkspace.DraftsFolder)
-				if err != nil {
-					l.Error("error creating draft",
-						"error", err,
-						"method", r.Method,
-						"path", r.URL.Path,
-						"template", template,
-						"drafts_folder", cfg.GoogleWorkspace.DraftsFolder,
-					)
-					http.Error(w, "Error creating document draft",
-						http.StatusInternalServerError)
-					return
+				// Check if we should use Microsoft Graph API instead of Google Workspace
+				if srv, ok := interface{}(s).(*server.Server); ok && srv.SharePoint != nil {
+					// Use Microsoft Graph API
+					msGraphDriveItem, err := srv.SharePoint.CopyFile(
+						template, title, srv.Config.SharePoint.DraftsFolder)
+					if err != nil {
+						l.Error("error creating draft with Microsoft Graph",
+							"error", err,
+							"method", r.Method,
+							"path", r.URL.Path,
+							"template", template,
+							"drafts_folder", srv.Config.SharePoint.DraftsFolder,
+						)
+						http.Error(w, "Error creating document draft",
+							http.StatusInternalServerError)
+						return
+					}
+
+					// Convert Microsoft Graph DriveItem to Google Drive File format for compatibility
+					f = &drive.File{
+						Id:           msGraphDriveItem.ID,
+						Name:         msGraphDriveItem.Name,
+						CreatedTime:  msGraphDriveItem.CreatedAt,
+						ModifiedTime: msGraphDriveItem.LastModified,
+						WebViewLink:  msGraphDriveItem.WebURL,
+					}
+				} else {
+					// Copy template to new draft file as service user using Google Workspace
+					f, err = s.CopyFile(
+						template, title, cfg.GoogleWorkspace.DraftsFolder)
+					if err != nil {
+						l.Error("error creating draft",
+							"error", err,
+							"method", r.Method,
+							"path", r.URL.Path,
+							"template", template,
+							"drafts_folder", cfg.GoogleWorkspace.DraftsFolder,
+						)
+						http.Error(w, "Error creating document draft",
+							http.StatusInternalServerError)
+						return
+					}
 				}
 			}
 
@@ -246,7 +300,7 @@ func DraftsHandler(
 			// Create tag
 			// Note: The o_id tag may be empty for environments such as development.
 			// For environments like pre-prod and prod, it will be set as
-			// Okta authentication is enforced before this handler is called for
+			// ALB OIDC authentication is enforced before this handler is called for
 			// those environments. Maybe, if id isn't set we use
 			// owner emails in the future?
 			id := r.Header.Get("x-amzn-oidc-identity")
@@ -262,7 +316,7 @@ func DraftsHandler(
 				Contributors: req.Contributors,
 				Created:      cd,
 				CreatedTime:  ct.Unix(),
-				DocNumber:    fmt.Sprintf("%s-???", req.ProductAbbreviation),
+				DocNumber:    fmt.Sprintf("%s-xxx", req.ProductAbbreviation),
 				DocType:      req.DocType,
 				MetaTags:     metaTags,
 				ModifiedTime: ct.Unix(),
@@ -319,8 +373,10 @@ func DraftsHandler(
 					http.StatusInternalServerError)
 				return
 			}
+			docByFileID := models.NewDocumentByFileID(f.Id, false)
 			model := models.Document{
-				GoogleFileID:       f.Id,
+				GoogleFileID:       docByFileID.GoogleFileID,
+				FileID:             docByFileID.FileID,
 				Approvers:          approvers,
 				Contributors:       contributors,
 				DocumentCreatedAt:  createdTime,
@@ -406,9 +462,7 @@ func DraftsHandler(
 				return
 			}
 			// Get document from database.
-			dbDoc := models.Document{
-				GoogleFileID: f.Id,
-			}
+			dbDoc := models.NewDocumentByFileID(f.Id, false)
 			if err := dbDoc.Get(db); err != nil {
 				l.Error("error getting document from database for data comparison",
 					"error", err,
@@ -421,9 +475,7 @@ func DraftsHandler(
 			// Get all reviews for the document.
 			var reviews models.DocumentReviews
 			if err := reviews.Find(db, models.DocumentReview{
-				Document: models.Document{
-					GoogleFileID: f.Id,
-				},
+				Document: models.NewDocumentByFileID(f.Id, false),
 			}); err != nil {
 				l.Error("error getting all reviews for document for data comparison",
 					"error", err,
@@ -592,9 +644,7 @@ func DraftsDocumentHandler(
 		}
 
 		// Get document from database.
-		model := models.Document{
-			GoogleFileID: docId,
-		}
+		model := models.NewDocumentByFileID(docId, false)
 		if err := model.Get(db); err != nil {
 			l.Error("error getting document draft from database",
 				"error", err,
@@ -732,9 +782,7 @@ func DraftsDocumentHandler(
 				return
 			}
 			// Get document from database.
-			dbDoc := models.Document{
-				GoogleFileID: docId,
-			}
+			dbDoc := models.NewDocumentByFileID(docId, false)
 			if err := dbDoc.Get(db); err != nil {
 				l.Error("error getting document from database for data comparison",
 					"error", err,
@@ -747,9 +795,7 @@ func DraftsDocumentHandler(
 			// Get all reviews for the document.
 			var reviews models.DocumentReviews
 			if err := reviews.Find(db, models.DocumentReview{
-				Document: models.Document{
-					GoogleFileID: docId,
-				},
+				Document: models.NewDocumentByFileID(docId, false),
 			}); err != nil {
 				l.Error("error getting all reviews for document for data comparison",
 					"error", err,
@@ -811,9 +857,7 @@ func DraftsDocumentHandler(
 			}
 
 			// Delete document in the database.
-			d := models.Document{
-				GoogleFileID: docId,
-			}
+			d := models.NewDocumentByFileID(docId, false)
 			if err := d.Delete(db); err != nil {
 				l.Error("error deleting document in database",
 					"error", err,
@@ -1183,7 +1227,7 @@ func DraftsDocumentHandler(
 				model.ProductID = 0
 
 				// Update doc number in document.
-				doc.DocNumber = fmt.Sprintf("%s-???", productAbbreviation)
+				doc.DocNumber = fmt.Sprintf("%s-xxx", productAbbreviation)
 			}
 
 			// Summary.
@@ -1281,9 +1325,7 @@ func DraftsDocumentHandler(
 				return
 			}
 			// Get document from database.
-			dbDoc := models.Document{
-				GoogleFileID: docId,
-			}
+			dbDoc := models.NewDocumentByFileID(docId, false)
 			if err := dbDoc.Get(db); err != nil {
 				l.Error("error getting document from database for data comparison",
 					"error", err,
@@ -1296,9 +1338,7 @@ func DraftsDocumentHandler(
 			// Get all reviews for the document.
 			var reviews models.DocumentReviews
 			if err := reviews.Find(db, models.DocumentReview{
-				Document: models.Document{
-					GoogleFileID: docId,
-				},
+				Document: models.NewDocumentByFileID(docId, false),
 			}); err != nil {
 				l.Error("error getting all reviews for document for data comparison",
 					"error", err,
@@ -1392,12 +1432,18 @@ func parseURLPath(path, prefix string) (string, error) {
 func getDocTypeTemplate(
 	docTypes []*config.DocumentType,
 	docType string,
+	useMicrosoftGraph bool,
 ) string {
 	template := ""
 
 	for _, t := range docTypes {
 		if t.Name == docType {
-			template = t.Template
+			// Use Microsoft template if MSTemplate is set and we're using Microsoft Graph
+			if useMicrosoftGraph && t.MSTemplate != "" {
+				template = t.MSTemplate
+			} else {
+				template = t.Template
+			}
 			break
 		}
 	}
